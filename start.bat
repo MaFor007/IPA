@@ -51,13 +51,15 @@ if errorlevel 1 (
 )
 
 rem ---------- 4. 苹果驱动检查 ----------
-sc query AppleMobileDeviceService >nul 2>&1
+sc query "Apple Mobile Device Service" >nul 2>&1
 if errorlevel 1 (
   echo.
-  echo [warn] 没检测到 AppleMobileDeviceService
+  echo [warn] 没检测到 "Apple Mobile Device Service"
   echo        插上线也认不到设备。请安装 iTunes 或 Microsoft Store 的「Apple 设备」：
   echo        https://www.apple.com.cn/itunes/
   echo.
+) else (
+  echo [ok] 苹果 USB 服务运行中
 )
 
 echo.

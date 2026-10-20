@@ -203,7 +203,7 @@ def list_devices():
     if rc != 0:
         hint = ""
         if "usbmuxd" in out.lower():
-            hint = "电脑上没有苹果 USB 服务（AppleMobileDeviceService），请先装 iTunes 或 Microsoft Store 的「Apple 设备」"
+            hint = "电脑上没有苹果 USB 服务（\"Apple Mobile Device Service\"），请先装 iTunes 或 Microsoft Store 的「Apple 设备」"
         return {"ok": False, "error": out.strip()[-500:], "hint": hint, "devices": []}
     devices, cur = [], None
     for line in out.splitlines():

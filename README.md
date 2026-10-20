@@ -16,8 +16,8 @@
 
 ## 一、电脑端（已完成，可直接跑）
 
-### 1. 装 Apple USB 驱动（必做，一次）
-Windows 认 iPhone 线靠苹果的 `AppleMobileDeviceService`，二选一：
+### 1. 装 Apple USB 驱动（本机已装好 ✅）
+Windows 认 iPhone 线靠苹果的 `Apple Mobile Device Service`，二选一：
 
 - **iTunes**：https://www.apple.com.cn/itunes/ （装完不用打开）
 - 或 Microsoft Store 搜 **「Apple 设备 / Apple Devices」**
@@ -25,9 +25,11 @@ Windows 认 iPhone 线靠苹果的 `AppleMobileDeviceService`，二选一：
 装完在 PowerShell 里确认：
 
 ```powershell
-Get-Service AppleMobileDeviceService
+sc query "Apple Mobile Device Service"
 ```
 状态应为 `Running`。没有它，插上线电脑也发现不了设备。
+> 服务名带空格，是 `Apple Mobile Device Service`，不是 `AppleMobileDeviceService`——这点最容易踩坑。
+> **本机已用 iTunes 安装包里的 `AppleMobileDeviceSupport64.msi` 装好，当前 Running。**
 
 ### 2. 启动
 双击 `start.bat`。首次会自动建虚拟环境并装 `pymobiledevice3`，随后浏览器打开
@@ -59,7 +61,8 @@ Get-Service AppleMobileDeviceService
 **不需要买 Mac**，用 GitHub Actions 免费 macOS 机器即可：
 
 1. 把本目录 `iphone-bridge` 传到 GitHub 新建仓库（私有库也行）
-   —— 懒人做法：`bash push-to-github.sh https://github.com/你的账号/iphone-bridge.git`
+   —— 懒人做法（Windows 双击）：先把 `push-to-github.bat` 拖到命令行带上仓库地址，
+   或者 `push-to-github.bat https://github.com/你的账号/iphone-bridge.git`
 2. 仓库自动触发 Actions（`.github/workflows/build-ipa.yml`）
 3. 构建完成后在 Actions 页面底部下载 `iPhoneBridge-tipa` 工件，解压得到 `Bridge.tipa`
 4. 把 `.tipa` 传到手机（微信/文件/AirDrop 都行），用 **TrollStore** 打开安装
