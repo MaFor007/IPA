@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>iPhone Bridge</title>
+<style>
+:root{
+  --bg:#0e1014; --bg2:#151922; --card:#1a1f2b; --line:#252c3a;
+  --tx:#e8ecf4; --dim:#8b95a7; --accent:#5b8cff; --accent2:#37d3a6;
+  --warn:#ffb020; --err:#ff5d6c;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:radial-gradient(1200px 600px at 15% -10%,#1d2436 0%,transparent 60%),
+             radial-gradient(900px 500px at 100% 0%,#152a2a 0%,transparent 55%),var(--bg);
+  color:var(--tx);font:14px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  display:flex;height:100vh;overflow:hidden;
+}
+aside{
+  width:200px;flex:0 0 200px;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:18px 12px;background:rgba(14,16,20,.55);
+  backdrop-filter:blur(8px);
+}
+.brand{display:flex;align-items:center;gap:9px;padding:0 8px 18px}
+.logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5b8cff,#37d3a6);
+  display:grid;place-items:center;font-weight:700;font-size:13px;color:#08101c}
+.brand b{font-size:14.5px;letter-spacing:.2px}
+nav{display:flex;flex-direction:column;gap:3px}
+nav button{
+  all:unset;cursor:pointer;padding:9px 11px;border-radius:9px;color:var(--dim);
+  font-size:13.5px;display:flex;gap:9px;align-items:center;transition:.16s;
+}
+nav button:hover{background:#1b2130;color:var(--tx)}
+nav button.on{background:linear-gradient(90deg,rgba(91,140,255,.18),rgba(55,211,166,.10));
+  color:#fff;box-shadow:inset 0 0 0 1px rgba(91,140,255,.25)}
+nav button i{font-style:normal;width:16px;text-align:center;opacity:.9}
+.foot{margin-top:auto;font-size:11.5px;color:#5a6376;padding:10px 8px 0;line-height:1.7}
+main{flex:1;overflow:auto;padding:22px 26px 60px}
+.head{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+h1{font-size:19px;margin:0;font-weight:650}
+.pill{font-size:11.5px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);
+  color:var(--dim);display:inline-flex;align-items:center;gap:6px;background:#141924}
+.dot{width:7px;height:7px;border-radius:50%;background:#4a5266}
+.dot.ok{background:var(--accent2);box-shadow:0 0 8px rgba(55,211,166,.7)}
+.dot.bad{background:var(--err);box-shadow:0 0 8px rgba(255,93,108,.6)}
+.panel{display:none}
+.panel.on{display:block;animation:fade .22s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card{background:linear-gradient(180deg,rgba(26,31,43,.9),rgba(21,25,34,.9));
+  border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.card h3{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--dim);
+  letter-spacing:.6px;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+textarea,input[type=text]{
+  width:100%;background:#0d1117;border:1px solid var(--line);color:var(--tx);
+  border-radius:10px;padding:10px 12px;font:13px/1.6 inherit;outline:none;resize:vertical;
+}
+textarea:focus,input:focus{border-color:rgba(91,140,255,.55);box-shadow:0 0 0 3px rgba(91,140,255,.10)}
+textarea{min-height:180px;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12.5px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+button.btn{
+  all:unset;cursor:pointer;padding:7px 14px;border-radius:9px;font-size:12.5px;
+  background:#202838;border:1px solid #2c3546;color:var(--tx);transition:.15s;
+}
+button.btn:hover{background:#26303f;border-color:#3a465c}
+button.btn.primary{background:linear-gradient(135deg,#4a7dff,#5b8cff);border-color:transparent;
+  color:#fff;font-weight:600;box-shadow:0 4px 14px rgba(74,125,255,.28)}
+button.btn.primary:hover{filter:brightness(1.08)}
+button.btn.ghost{background:transparent}
+button.btn:disabled{opacity:.42;cursor:not-allowed}
+.sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px}
+.sw input{display:none}
+.track{width:38px;height:21px;border-radius:20px;background:#2a3242;position:relative;transition:.2s}
+.track:after{content:"";position:absolute;top:2.5px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#98a3b8;transition:.2s}
+.sw input:checked+.track{background:linear-gradient(90deg,#3f6ee0,#37d3a6)}
+.sw input:checked+.track:after{left:19px;background:#fff}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:7px 12px;font-size:13px}
+.kv span:nth-child(odd){color:var(--dim)}
+.list{max-height:300px;overflow:auto;border-top:1px solid var(--line);margin-top:8px}
+.item{padding:9px 4px;border-bottom:1px solid rgba(37,44,58,.6);font-size:12.5px;
+  display:flex;gap:10px;align-items:center;cursor:pointer}
+.item:hover{background:rgba(91,140,255,.07)}
+.item .t{color:#4b5567;font-size:11px;flex:0 0 24px}
+.item .c{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:ui-monospace,Consolas,monospace}
+.badge{font-size:10.5px;padding:1px 6px;border-radius:5px;background:#20293a;color:#8b95a7}
+.badge.p{background:rgba(55,211,166,.14);color:#4fd8ae}
+.badge.c{background:rgba(91,140,255,.16);color:#7fa4ff}
+pre{background:#0b0e14;border:1px solid var(--line);border-radius:10px;padding:12px;
+  font-size:11.8px;line-height:1.65;overflow:auto;max-height:260px;margin:0;color:#9fb0c9}
+.hint{font-size:12px;color:#6d7789;margin-top:9px;line-height:1.7}
+.warnbox{border:1px solid rgba(255,176,32,.35);background:rgba(255,176,32,.08);
+  border-radius:12px;padding:13px 16px;font-size:12.8px;color:#ffd08a;line-height:1.75}
+.okbox{border:1px solid rgba(55,211,166,.3);background:rgba(55,211,166,.07);
+  border-radius:12px;padding:13px 16px;font-size:12.8px;color:#9fe8d3;line-height:1.75}
+.tag{font-family:ui-monospace,Consolas,monospace;background:#0d1117;border:1px solid var(--line);
+  padding:1px 6px;border-radius:5px;font-size:11.5px;color:#9db4d8}
+.applist{max-height:440px;overflow:auto}
+.app{display:flex;gap:11px;align-items:center;padding:9px 10px;border-radius:9px;cursor:pointer}
+.app:hover{background:rgba(91,140,255,.09)}
+.app .ic{width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg,#2c3549,#212a3b);display:grid;place-items:center;
+  font-size:12px;color:#8ea6cc;font-weight:600;flex:0 0 30px}
+.app .n{font-size:13px}.app .b{font-size:11px;color:#5f6a7e;font-family:ui-monospace,Consolas,monospace}
+.app .go{margin-left:auto;font-size:11.5px;color:#5b8cff;opacity:0;transition:.15s}
+.app:hover .go{opacity:1}
+.split{display:grid;grid-template-columns:260px 1fr;gap:14px}
+.filerow{display:flex;gap:9px;align-items:center;padding:7px 9px;border-radius:8px;
+  font-size:12.6px;cursor:pointer;font-family:ui-monospace,Consolas,monospace}
+.filerow:hover{background:rgba(91,140,255,.08)}
+.filerow .sz{margin-left:auto;color:#5f6a7e;font-size:11px;flex:0 0 auto}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#2a3242;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand"><div class="logo">iB</div><b>iPhone Bridge</b></div>
+  <nav>
+    <button class="on" data-tab="clip"><i>▤</i>剪贴板</button>
+    <button data-tab="dev"><i>◈</i>设备</button>
+    <button data-tab="file"><i>▦</i>文件</button>
+    <button data-tab="app"><i>▩</i>应用</button>
+    <button data-tab="tool"><i>✦</i>工具</button>
+    <button data-tab="raw"><i>⇄</i>原生模式</button>
+  </nav>
+  <div class="foot">
+    <div id="st-dev"><span class="dot"></span> 未连接</div>
+    <div id="st-phone"><span class="dot"></span> 手机端</div>
+    <div id="st-sync"><span class="dot"></span> 同步关闭</div>
+  </div>
+</aside>
+
+<main>
+  <!-- 剪贴板 -->
+  <section class="panel on" id="p-clip">
+    <div class="head">
+      <h1>剪贴板</h1>
+      <label class="sw"><input type="checkbox" id="syncSw"><span class="track"></span>自动双向同步</label>
+      <span class="pill" id="syncInfo">每 1 秒比对一次</span>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3>电脑剪贴板</h3>
+        <textarea id="pcText" placeholder="这里显示电脑当前的剪贴板内容"></textarea>
+        <div class="row">
+          <button class="btn" onclick="readPC()">读取电脑</button>
+          <button class="btn primary" onclick="pushToPhone()">发送到手机 →</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>手机剪贴板</h3>
+        <textarea id="phText" placeholder="连接手机后点「从手机获取」"></textarea>
+        <div class="row">
+          <button class="btn" onclick="pullFromPhone()">从手机获取</button>
+          <button class="btn primary" onclick="writeToPhone()">写入手机剪贴板</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>同步记录</h3>
+      <div class="list" id="hist"><div class="hint">暂无记录</div></div>
+    </div>
+  </section>
+
+  <!-- 设备 -->
+  <section class="panel" id="p-dev">
+    <div class="head"><h1>设备</h1><span class="pill" id="devPill">检测中…</span></div>
+    <div class="card">
+      <h3>连接状态</h3>
+      <div class="kv" id="devKv">
+        <span>USB 驱动</span><span id="kDriver">—</span>
+        <span>设备</span><span id="kDev">—</span>
+        <span>端口转发</span><span id="kTunnel">—</span>
+        <span>手机服务</span><span id="kPhone">—</span>
+      </div>
+      <div class="row">
+        <button class="btn primary" onclick="tunnel('start')">启动转发</button>
+        <button class="btn" onclick="tunnel('stop')">停止</button>
+        <button class="btn ghost" onclick="refresh()">刷新</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>设备信息</h3>
+      <div class="kv" id="infoKv"><span>—</span><span>等待连接</span></div>
+    </div>
+    <div class="card">
+      <h3>诊断输出</h3>
+      <pre id="diag">—</pre>
+    </div>
+  </section>
+
+  <!-- 文件 -->
+  <section class="panel" id="p-file">
+    <div class="head">
+      <h1>文件</h1>
+      <input type="text" id="pathIn" value="/var/mobile/Media" style="max-width:420px">
+      <button class="btn" onclick="lsDir()">打开</button>
+      <button class="btn ghost" onclick="lsDir('/var/mobile/Media/DCIM')">相册目录</button>
+      <button class="btn ghost" onclick="lsDir('/var/mobile/Documents')">Documents</button>
+    </div>
+    <div class="card">
+      <div id="files" class="list" style="max-height:520px"><div class="hint">输入路径后点「打开」</div></div>
+    </div>
+  </section>
+
+  <!-- 应用 -->
+  <section class="panel" id="p-app">
+    <div class="head">
+      <h1>应用</h1>
+      <input type="text" id="appQ" placeholder="搜索应用名 / Bundle ID" style="max-width:300px" oninput="renderApps()">
+      <button class="btn" onclick="loadApps()">读取应用列表</button>
+    </div>
+    <div class="card"><div class="applist" id="apps"><div class="hint">点右上「读取应用列表」</div></div></div>
+  </section>
+
+  <!-- 工具 -->
+  <section class="panel" id="p-tool">
+    <div class="head"><h1>工具箱</h1></div>
+    <div class="grid">
+      <div class="card">
+        <h3>亮度 / 音量</h3>
+        <div class="row"><span class="hint" style="margin:0">亮度</span>
+          <input type="text" id="bri" value="0.7" style="width:70px">
+          <button class="btn" onclick="setBri()">应用</button></div>
+        <div class="row"><span class="hint" style="margin:0">音量</span>
+          <input type="text" id="vol" value="0.5" style="width:70px">
+          <button class="btn" onclick="setVol()">应用</button></div>
+        <div class="row">
+          <button class="btn" onclick="torch(true)">开手电</button>
+          <button class="btn" onclick="torch(false)">关手电</button>
+          <button class="btn" onclick="call('/vibrate','POST',{},'已震动')">震动</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>快捷指令 / 打开 App</h3>
+        <div class="row">
+          <input type="text" id="scName" placeholder="快捷指令名称">
+          <button class="btn" onclick="runSc()">运行</button>
+        </div>
+        <div class="row">
+          <input type="text" id="scUrl" placeholder="URL 或 URL Scheme，如 shortcuts://">
+          <button class="btn" onclick="openUrl()">打开</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>接口调试</h3>
+      <div class="row">
+        <input type="text" id="rawPath" value="/info" style="max-width:300px">
+        <button class="btn" onclick="rawCall()">GET</button>
+      </div>
+      <pre id="rawOut" style="margin-top:12px">—</pre>
+    </div>
+  </section>
+
+  <!-- 原生模式：不需要手机端 App -->
+  <section class="panel" id="p-raw">
+    <div class="head">
+      <h1>原生模式</h1>
+      <span class="pill">免装 App · 只靠 USB 服务</span>
+    </div>
+    <div class="okbox" style="margin-bottom:14px">
+      这一页不需要手机端 App，直接走苹果自己的 USB 服务。
+      能用：设备信息、截图、AFC 文件读写、应用列表、实时日志。
+      <b>剪贴板必须装手机端 App 才有</b>——iOS 没有对外暴露剪贴板接口。
+      <br>AFC 的根目录是 <span class="tag">/var/mobile/Media</span>，所以填 <span class="tag">/</span> 看到的是相册所在的目录。
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3>设备信息</h3>
+        <div class="kv" id="nInfoKv"><span>—</span><span>点「读取」</span></div>
+        <div class="row"><button class="btn primary" onclick="nInfo()">读取</button></div>
+      </div>
+      <div class="card">
+        <h3>截图</h3>
+        <div class="row">
+          <button class="btn primary" onclick="nShot()">截一张</button>
+          <span class="hint" style="margin:0" id="shotMsg">首次会尝试自动挂载开发者镜像</span>
+        </div>
+        <div id="shotBox" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>文件（AFC）</h3>
+      <div class="row">
+        <input type="text" id="nPath" value="/" style="max-width:340px">
+        <button class="btn" onclick="nLs()">浏览</button>
+        <button class="btn ghost" onclick="nLs('/DCIM')">/DCIM</button>
+        <button class="btn ghost" onclick="document.getElementById('upFile').click()">上传到当前目录</button>
+        <input type="file" id="upFile" style="display:none" onchange="nUpload(this)">
+      </div>
+      <div class="list" id="nFiles" style="max-height:340px"><div class="hint">输入路径后点「浏览」</div></div>
+    </div>
+    <div class="card">
+      <h3>已安装应用</h3>
+      <div class="row"><button class="btn" onclick="nApps()">读取</button></div>
+      <div class="list" id="nAppsList" style="max-height:260px"><div class="hint">—</div></div>
+    </div>
+    <div class="card">
+      <h3>命令 / 日志</h3>
+      <div class="row">
+        <input type="text" id="nCmd" value="lockdown info" style="max-width:320px">
+        <button class="btn" onclick="nRun()">执行</button>
+        <button class="btn ghost" onclick="nSyslog()">取日志 3 秒</button>
+      </div>
+      <pre id="nOut" style="margin-top:12px">—</pre>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let STATE = {};
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $('#p-' + b.dataset.tab).classList.add('on');
+});
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  return await r.json();
+}
+async function call(path, method = 'GET', body = null, okMsg) {
+  const r = await api('/api/phone', {path, method, body});
+  if (okMsg && r.ok) toast(okMsg);
+  if (!r.ok) toast(r.error || '调用失败', true);
+  return r;
+}
+function toast(msg, bad) {
+  const d = document.createElement('div');
+  d.textContent = msg;
+  d.style.cssText = `position:fixed;right:22px;bottom:22px;padding:10px 16px;border-radius:10px;
+    background:${bad ? 'rgba(255,93,108,.16)' : 'rgba(55,211,166,.14)'};
+    border:1px solid ${bad ? 'rgba(255,93,108,.4)' : 'rgba(55,211,166,.35)'};
+    color:${bad ? '#ffb3ba' : '#8de8cb'};font-size:12.6px;z-index:9;transition:.3s`;
+  document.body.appendChild(d);
+  setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 400); }, 1800);
+}
+
+/* ---------- 状态 ---------- */
+async function refresh() {
+  const s = await api('/api/status');
+  STATE = s;
+  const d = s.devices || {};
+  const devOk = d.ok && (d.devices || []).length > 0;
+  $('#st-dev').innerHTML = `<span class="dot ${devOk ? 'ok' : 'bad'}"></span> ${devOk ? '设备在线' : '未连接'}`;
+  const phOk = s.phone && s.phone.connected;
+  $('#st-phone').innerHTML = `<span class="dot ${phOk ? 'ok' : 'bad'}"></span> 手机端${phOk ? '已就绪' : '未响应'}`;
+  $('#st-sync').innerHTML = `<span class="dot ${s.sync && s.sync.enabled ? 'ok' : ''}"></span> 同步${s.sync && s.sync.enabled ? '开启' : '关闭'}`;
+  $('#syncSw').checked = !!(s.sync && s.sync.enabled);
+
+  $('#kDriver').innerHTML = s.driver.pymobiledevice3 ? '<span style="color:#4fd8ae">pymobiledevice3 正常</span>' : '<span style="color:#ff8b95">未安装 / 异常</span>';
+  $('#kDev').innerHTML = devOk
+    ? (d.devices.map(x => `${x.udid}${x.product_type ? ' · ' + x.product_type : ''}`).join('<br>'))
+    : `<span style="color:#8b95a7">线未插 / 未信任 / 缺 Apple USB 驱动</span>` +
+      (d.hint ? `<br><span style="color:#ffb020">${esc(d.hint)}</span>` : '');
+  $('#kTunnel').innerHTML = s.tunnel.running ? `<span style="color:#4fd8ae">127.0.0.1:${s.tunnel.local} → ${s.tunnel.remote}</span>` : '未启动';
+  $('#kPhone').innerHTML = phOk ? '<span style="color:#4fd8ae">在线</span>' : '<span style="color:#8b95a7">未连接</span>';
+  $('#devPill').innerHTML = `<span class="dot ${phOk ? 'ok' : devOk ? '' : 'bad'}"></span>` +
+    (phOk ? ' 全链路就绪' : devOk ? ' 设备已识别' : ' 未连接');
+
+  const i = (s.phone && s.phone.info) || {};
+  const rows = [
+    ['名称', i.name], ['型号', i.model], ['系统', i.system_version],
+    ['电量', i.battery != null ? Math.round(i.battery * 100) + '%' : ''],
+    ['充电中', i.charging == null ? '' : (i.charging ? '是' : '否')],
+    ['App 版本', i.app_version], ['屏幕', i.screen]
+  ].filter(r => r[1]);
+  $('#infoKv').innerHTML = rows.length
+    ? rows.map(r => `<span>${r[0]}</span><span>${r[1]}</span>`).join('')
+    : '<span>—</span><span>等待连接</span>';
+
+  $('#diag').textContent = JSON.stringify({
+    driver: s.driver, tunnel: s.tunnel, raw: d.raw || d.error, sync: s.sync
+  }, null, 2);
+  return s;
+}
+
+/* ---------- 剪贴板 ---------- */
+async function readPC() {
+  const r = await api('/api/clipboard/pc');
+  $('#pcText').value = r.text || '';
+}
+async function pullFromPhone() {
+  const r = await api('/api/clipboard/pull', {});
+  if (r.ok) { $('#phText').value = r.text || ''; toast('已获取手机剪贴板'); }
+  else toast(r.error || '手机端未连接', true);
+}
+async function pushToPhone() {
+  const t = $('#pcText').value;
+  const r = await api('/api/clipboard/push', {text: t});
+  r.ok ? toast('已写入手机剪贴板') : toast(r.error || '失败', true);
+}
+async function writeToPhone() {
+  const t = $('#phText').value;
+  const r = await call('/clipboard', 'POST', {text: t}, '已写入手机剪贴板');
+  if (r.ok) $('#pcText').value = t;
+}
+$('#syncSw').onchange = async e => {
+  await api('/api/sync', {enabled: e.target.checked});
+  toast(e.target.checked ? '自动同步已开启' : '自动同步已关闭');
+  refresh();
+};
+
+async function loadHist() {
+  const r = await api('/api/clipboard/history');
+  const h = r.history || [];
+  $('#hist').innerHTML = h.length ? h.map(x => `<div class="item" onclick="navigator.clipboard.writeText(this.querySelector('.c').textContent)">
+    <span class="t">${x.t}</span>
+    <span class="badge ${x.side === 'pc' ? 'c' : 'p'}">${x.side === 'pc' ? '电脑' : '手机'}</span>
+    <span class="c">${esc(x.text)}</span></div>`).join('') : '<div class="hint">暂无记录</div>';
+}
+const esc = s => (s || '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+/* ---------- 隧道 ---------- */
+async function tunnel(action) {
+  const r = await api('/api/tunnel', {action});
+  toast(action === 'start' ? '转发已启动' : '转发已停止');
+  refresh();
+}
+
+/* ---------- 文件 ---------- */
+async function lsDir(p) {
+  const path = p || $('#pathIn').value || '/var/mobile/Media';
+  $('#pathIn').value = path;
+  const r = await call('/ls?path=' + encodeURIComponent(path));
+  if (!r.ok) return;
+  const items = (r.items || []).slice().sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
+  $('#files').innerHTML = `<div class="filerow" onclick="lsDir('${esc((r.parent || '/').replace(/'/g, ''))}')">
+      <span>↑</span><span>..</span></div>` +
+    items.map(f => `<div class="filerow" onclick="${f.dir ? `lsDir('${(path.replace(/\/$/, '') + '/' + f.name).replace(/'/g, '')}')` : `getFile('${(path.replace(/\/$/, '') + '/' + f.name).replace(/'/g, '')}')`}">
+      <span>${f.dir ? '▸' : '·'}</span><span>${esc(f.name)}</span>
+      <span class="sz">${f.dir ? '目录' : fmt(f.size)}</span></div>`).join('');
+}
+const fmt = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' KB' : n + ' B';
+async function getFile(p) {
+  const r = await call('/get?path=' + encodeURIComponent(p));
+  if (!r.ok) return;
+  const bin = atob(r.data || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([arr]));
+  a.download = p.split('/').pop();
+  a.click();
+  toast('已下载 ' + a.download);
+}
+
+/* ---------- 应用 ---------- */
+let APPS = [];
+async function loadApps() {
+  const r = await call('/apps');
+  APPS = r.apps || [];
+  renderApps();
+  toast(APPS.length ? `共 ${APPS.length} 个应用` : (r.error || '读取失败'), !APPS.length);
+}
+function renderApps() {
+  const q = ($('#appQ').value || '').toLowerCase();
+  const l = APPS.filter(a => !q || (a.name + ' ' + a.bundle).toLowerCase().includes(q));
+  $('#apps').innerHTML = l.map(a => `<div class="app" onclick="openApp('${a.bundle}')">
+      <div class="ic">${esc((a.name || '?').slice(0, 2))}</div>
+      <div><div class="n">${esc(a.name)}</div><div class="b">${esc(a.bundle)}</div></div>
+      <div class="go">启动 →</div></div>`).join('') || '<div class="hint">无匹配</div>';
+}
+async function openApp(b) {
+  const r = await call('/open', 'POST', {bundle: b});
+  r.ok ? toast('已启动') : toast(r.error || '启动失败', true);
+}
+
+/* ---------- 工具 ---------- */
+async function setBri() { await call('/brightness', 'POST', {value: parseFloat($('#bri').value)}, '亮度已调整'); }
+async function setVol() { await call('/volume', 'POST', {value: parseFloat($('#vol').value)}, '音量已调整'); }
+async function torch(on) { await call('/torch', 'POST', {on}, on ? '手电已开' : '手电已关'); }
+async function runSc() { await call('/shortcut', 'POST', {name: $('#scName').value}, '已触发'); }
+async function openUrl() { await call('/url', 'POST', {url: $('#scUrl').value}, '已打开'); }
+async function rawCall() {
+  const r = await call($('#rawPath').value);
+  $('#rawOut').textContent = JSON.stringify(r, null, 2);
+}
+
+/* ---------- 原生模式（不需要手机端 App） ---------- */
+async function nInfo() {
+  $('#nInfoKv').innerHTML = '<span>读取中…</span><span></span>';
+  const r = await api('/api/native/info');
+  if (r.ok && r.items && r.items.length) {
+    $('#nInfoKv').innerHTML = r.items.map(x => `<span>${x.k}</span><span>${esc(x.v)}</span>`).join('');
+  } else {
+    $('#nInfoKv').innerHTML = `<span>失败</span><span style="color:#ff8b95">${esc(r.error || r.raw || '无数据')}</span>`;
+  }
+}
+async function nShot() {
+  $('#shotMsg').textContent = '正在截图（可能需要挂载镜像）…';
+  const r = await api('/api/native/shot');
+  if (!r.ok) {
+    $('#shotMsg').textContent = '失败';
+    $('#shotBox').innerHTML = `<div class="hint" style="color:#ff8b95">${esc(r.error)}<br>${esc(r.hint || '')}</div>`;
+    return;
+  }
+  $('#shotMsg').textContent = `成功 ${(r.size / 1024).toFixed(0)} KB`;
+  $('#shotBox').innerHTML = `<img src="data:image/png;base64,${r.data}"
+    style="width:100%;border-radius:10px;border:1px solid var(--line)">`;
+}
+async function nLs(p) {
+  const path = p || $('#nPath').value || '/';
+  $('#nPath').value = path;
+  const r = await api('/api/native/ls?path=' + encodeURIComponent(path));
+  if (!r.ok) {
+    $('#nFiles').innerHTML = `<div class="hint" style="color:#ff8b95">${esc(r.error)}</div>`;
+    return;
+  }
+  const join = (n) => (path.replace(/\/$/, '') + '/' + n);
+  const items = (r.items || []).slice().sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
+  $('#nFiles').innerHTML =
+    `<div class="filerow" onclick="nLs('${r.parent}')"><span>↑</span><span>..</span></div>` +
+    items.map(f => `<div class="filerow" onclick="${f.dir ? `nLs('${join(f.name)}')` : `nGet('${join(f.name)}')`}">
+      <span>${f.dir ? '▸' : '·'}</span><span>${esc(f.name)}</span>
+      <span class="sz">${f.dir ? '目录' : (f.size > 0 ? fmt(f.size) : '')}</span></div>`).join('');
+}
+async function nGet(p) {
+  toast('正在拉取…');
+  const r = await api('/api/native/get', {path: p});
+  if (!r.ok) return toast(r.error || '失败', true);
+  const bin = atob(r.data || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([arr]));
+  a.download = r.name || p.split('/').pop();
+  a.click();
+  toast('已下载 ' + a.download);
+}
+function nUpload(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const fr = new FileReader();
+  fr.onload = async () => {
+    const b64 = String(fr.result).split(',')[1] || '';
+    const path = ($('#nPath').value.replace(/\/$/, '') || '') + '/' + f.name;
+    toast('正在上传 ' + f.name + ' …');
+    const r = await api('/api/native/put', {path, data: b64});
+    r.ok ? toast('上传成功') : toast(r.error || '上传失败', true);
+    nLs();
+  };
+  fr.readAsDataURL(f);
+  input.value = '';
+}
+async function nApps() {
+  $('#nAppsList').innerHTML = '<div class="hint">读取中…</div>';
+  const r = await api('/api/native/apps');
+  const l = r.apps || [];
+  $('#nAppsList').innerHTML = l.length
+    ? l.map(a => `<div class="item"><span class="c">${esc(a.bundle)}</span></div>`).join('')
+    : `<div class="hint" style="color:#ff8b95">${esc(r.error || '解析不到，看下方原始输出')}</div>
+       <pre style="margin-top:8px">${esc((r.raw || '').slice(0, 1200))}</pre>`;
+}
+async function nRun() {
+  const args = $('#nCmd').value.trim().split(/\s+/).filter(Boolean);
+  $('#nOut').textContent = '执行中…';
+  const r = await api('/api/native/cmd', {args});
+  $('#nOut').textContent = (r.out || r.error || '(无输出)');
+}
+async function nSyslog() {
+  $('#nOut').textContent = '采集 3 秒…';
+  const r = await api('/api/native/syslog');
+  $('#nOut').textContent = (r.lines || []).join('\n') || '(无输出)';
+}
+
+/* ---------- 轮询 ---------- */
+refresh();
+setInterval(async () => {
+  const s = await refresh();
+  if (s.phone && s.phone.connected) {
+    if ($('#p-clip').classList.contains('on')) {
+      const r = await api('/api/phone', {path: '/clipboard', method: 'GET'});
+      if (r.ok) $('#phText').value = r.text || '';
+      loadHist();
+    }
+  }
+}, 2500);
+setInterval(() => { if ($('#p-clip').classList.contains('on')) readPC(); }, 4000);
+</script>
+</body>
+</html>

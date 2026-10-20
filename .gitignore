@@ -1,0 +1,7 @@
+.venv/
+wheels/
+ios/build/
+*.pyc
+__pycache__/
+*.log
+.DS_Store

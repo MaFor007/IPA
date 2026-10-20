@@ -1,0 +1,24 @@
+name: Build TrollStore TIPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unsigned app + sign with ldid
+        run: |
+          cd ios
+          chmod +x build.sh
+          bash build.sh
+
+      - name: Upload TIPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhoneBridge-tipa
+          path: ios/build/Bridge.tipa
+          if-no-files-found: error
