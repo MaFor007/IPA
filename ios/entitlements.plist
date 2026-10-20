@@ -26,5 +26,15 @@
 		<string>kTCCServicePhotos</string>
 		<string>kTCCServiceMicrophone</string>
 	</array>
+	<key>com.apple.private.hid.client.event-dispatch</key>
+	<true/>
+	<key>com.apple.private.hid.client.event-injector</key>
+	<true/>
+	<key>com.apple.private.hid.client.admin</key>
+	<true/>
+	<key>com.apple.private.hid.interface.client</key>
+	<true/>
+	<key>com.apple.private.iokit.user-client-open</key>
+	<true/>
 </dict>
 </plist>

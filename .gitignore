@@ -1,5 +1,7 @@
 .venv/
+.venv312/
 wheels/
+w2/
 dist/
 ios/build/
 *.pyc

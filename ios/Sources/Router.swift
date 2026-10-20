@@ -121,12 +121,75 @@ enum Router {
         case "/logs":
             return ok(["ok": true, "logs": Log.lines])
 
+        // MARK: - 触摸 / 键盘注入
+        case "/hid":
+            return ok(["ok": true, "ready": HID.shared.ready,
+                       "screen": "\(Int(UIScreen.main.bounds.width))x\(Int(UIScreen.main.bounds.height))"])
+
+        case "/tap":
+            let b = req.jsonBody
+            let pt = point(b)
+            guard HID.shared.ready else { return fail("HID 未就绪（可能缺少注入权限）") }
+            let r = HID.shared.tap(x: pt.x, y: pt.y)
+            return json(["ok": r, "x": pt.x, "y": pt.y])
+
+        case "/long":
+            let b = req.jsonBody
+            let pt = point(b)
+            let secs = (b["seconds"] as? Double) ?? 1.0
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(["ok": HID.shared.longPress(x: pt.x, y: pt.y, seconds: secs)])
+
+        case "/swipe":
+            let b = req.jsonBody
+            let p1 = point(b, prefix: "1")
+            let p2 = point(b, prefix: "2")
+            let dur = (b["duration"] as? Double) ?? 0.3
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(["ok": HID.shared.swipe(x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, duration: dur)])
+
+        case "/home":
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(["ok": HID.shared.home()])
+
+        case "/text":
+            let t = (req.jsonBody["text"] as? String) ?? ""
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(HID.shared.type(t))
+
+        case "/press":
+            let name = (req.jsonBody["key"] as? String) ?? "return"
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(["ok": HID.shared.press(name), "key": name])
+
+        case "/paste":
+            let t = (req.jsonBody["text"] as? String) ?? ""
+            guard HID.shared.ready else { return fail("HID 未就绪") }
+            return json(HID.shared.paste(t))
+
         default:
             return makeResponse(status: 404, json: ["ok": false, "error": "未知接口 \(p)"])
         }
     }
 
     // MARK: - 工具
+    /// 坐标解析：优先归一化 nx/ny(0~1)，其次点坐标 x/y
+    static func point(_ b: [String: Any], prefix: String = "") -> CGPoint {
+        let size = onMain { UIScreen.main.bounds.size }
+        let nk = "nx" + prefix, nyk = "ny" + prefix
+        if let nx = b[nk] as? Double, let ny = b[nyk] as? Double {
+            return CGPoint(x: CGFloat(nx) * size.width, y: CGFloat(ny) * size.height)
+        }
+        let xk = "x" + prefix, yk = "y" + prefix
+        if let x = b[xk] as? Double, let y = b[yk] as? Double {
+            return CGPoint(x: CGFloat(x), y: CGFloat(y))
+        }
+        if let x = b[xk] as? Int, let y = b[yk] as? Int {
+            return CGPoint(x: CGFloat(x), y: CGFloat(y))
+        }
+        return CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
     static func ok(_ extra: [String: Any]) -> Data {
         var d = extra
         d["ok"] = true
