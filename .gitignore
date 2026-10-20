@@ -1,5 +1,6 @@
 .venv/
 wheels/
+dist/
 ios/build/
 *.pyc
 __pycache__/
