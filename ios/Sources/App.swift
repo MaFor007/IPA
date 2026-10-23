@@ -24,6 +24,13 @@ final class Log {
     }
 }
 
+// MARK: - 隐藏到后台（私有 suspend，TrollStore 环境可用；保活音频维持后台运行）
+func hideToBackground() {
+    DispatchQueue.main.async {
+        UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+    }
+}
+
 // MARK: - App 入口
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -124,7 +131,11 @@ final class BridgeViewController: UIViewController {
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let logView = UITextView()
+    private let hideButton = UIButton(type: .system)
+    private let countdownLabel = UILabel()
     private var timer: Timer?
+    private var hideTimer: Timer?
+    private var hideCountdown = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -172,10 +183,72 @@ final class BridgeViewController: UIViewController {
 
         VolumeControl.shared.attach(to: view)
 
+        // 隐藏按钮 + 倒计时提示
+        hideButton.setTitle("隐藏到后台（回主屏）", for: .normal)
+        hideButton.setTitleColor(.white, for: .normal)
+        hideButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        hideButton.backgroundColor = UIColor(red: 0.16, green: 0.36, blue: 0.85, alpha: 1)
+        hideButton.layer.cornerRadius = 12
+        hideButton.translatesAutoresizingMaskIntoConstraints = false
+        hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
+        view.addSubview(hideButton)
+
+        countdownLabel.font = UIFont.systemFont(ofSize: 12)
+        countdownLabel.textColor = UIColor(white: 0.55, alpha: 1)
+        countdownLabel.textAlignment = .center
+        countdownLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(countdownLabel)
+
+        NSLayoutConstraint.activate([
+            hideButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hideButton.topAnchor.constraint(equalTo: logView.bottomAnchor, constant: 24),
+            hideButton.widthAnchor.constraint(equalToConstant: 220),
+            hideButton.heightAnchor.constraint(equalToConstant: 46),
+            countdownLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            countdownLabel.topAnchor.constraint(equalTo: hideButton.bottomAnchor, constant: 12)
+        ])
+
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+
+        // 每次激活 8 秒后自动隐藏到后台（电脑远程拉起后也自动回主屏，
+        // 避免 Bridge 界面挡在屏幕前导致点击“没反应”）
+        scheduleAutoHide(8)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func appDidBecomeActive() {
+        scheduleAutoHide(8)
+    }
+
+    private func scheduleAutoHide(_ seconds: Int) {
+        hideTimer?.invalidate()
+        hideCountdown = seconds
+        updateCountdown()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] t in
+            guard let self = self else { t.invalidate(); return }
+            self.hideCountdown -= 1
+            self.updateCountdown()
+            if self.hideCountdown <= 0 {
+                t.invalidate()
+                Log.add("自动隐藏到后台")
+                hideToBackground()
+            }
+        }
+    }
+
+    private func updateCountdown() {
+        countdownLabel.text = hideCountdown > 0 ? "\(hideCountdown) 秒后自动隐藏（后台继续服务）" : ""
+    }
+
+    @objc private func hideTapped() {
+        Log.add("手动隐藏到后台")
+        hideToBackground()
+    }
     }
 
     private func refresh() {
@@ -186,6 +259,7 @@ final class BridgeViewController: UIViewController {
         设备   \(v.name)  \(v.model)  iOS \(v.systemVersion)
         剪贴板 \(UIPasteboard.general.changeCount) 次变更
         提示   保持本 App 在后台即可，勿上滑杀掉
+        点击  电脑端点按由本 App 注入系统，无需回到本界面
         """
         logView.text = Log.lines.suffix(40).joined(separator: "\n")
         if !logView.text.isEmpty {
