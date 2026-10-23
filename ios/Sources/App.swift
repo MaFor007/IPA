@@ -24,15 +24,6 @@ final class Log {
     }
 }
 
-// MARK: - 隐藏到后台（私有 suspend，TrollStore 环境可用；保活音频维持后台运行）
-func hideToBackground() {
-    DispatchQueue.main.async {
-        // UIApplication 私有方法 suspend()（效果等同按 Home 键回主屏）。
-        // 不能用 #selector(...)：私有方法对编译器不可见，iOS SDK 也无 NSXPCConnection。
-        UIApplication.shared.perform(Selector(("suspend")))
-    }
-}
-
 // MARK: - App 入口
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -50,7 +41,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-// MARK: - 后台保活（静音音频循环）
+// MARK: - 后台保活（静音音频循环；前台小窗模式下也保留，双保险）
 final class KeepAlive {
     static let shared = KeepAlive()
     private var player: AVAudioPlayer?
@@ -128,40 +119,93 @@ final class VolumeControl {
     }
 }
 
-// MARK: - 界面
+// MARK: - 触摸穿透根视图
+// 收起模式下：只有小胶囊区域接收触摸，其余区域 hitTest 返回 nil。
+// 电脑端 IOHIDEvent 注入走系统事件层，不受本视图影响；
+// 但 App 必须保持前台（挂起后注入会被系统静默丢弃——实测结论）。
+final class PassthroughView: UIView {
+    // 命中区域（本视图坐标系）；为 nil 时整屏可交互（展开模式）
+    var hotspot: CGRect?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let h = hotspot {
+            return h.contains(point) ? super.hitTest(point, with: event) : nil
+        }
+        return super.hitTest(point, with: event)
+    }
+}
+
+// MARK: - 界面（小胶囊 + 可展开面板）
 final class BridgeViewController: UIViewController {
-    private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let logView = UITextView()
-    private let hideButton = UIButton(type: .system)
-    private let countdownLabel = UILabel()
+
+    // 小胶囊（收起模式）
+    private let pill = UIView()
+    private let pillDot = UIView()
+    private let pillLabel = UILabel()
+
+    // 展开模式控件
+    private let panel = UIView()
+    private let titleLabel = UILabel()
+    private let collapseButton = UIButton(type: .system)
+
     private var timer: Timer?
-    private var hideTimer: Timer?
-    private var hideCountdown = 0
+    private var expanded = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(red: 0.05, green: 0.06, blue: 0.08, alpha: 1)
+        let root = PassthroughView()
+        root.frame = view.bounds
+        root.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view = root
+
+        // ---- 小胶囊 ----
+        pill.backgroundColor = UIColor(white: 0, alpha: 0.45)
+        pill.layer.cornerRadius = 16
+        pill.layer.borderWidth = 1
+        pill.layer.borderColor = UIColor(white: 1, alpha: 0.25).cgColor
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.isUserInteractionEnabled = true
+        pill.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(pillTapped)))
+        view.addSubview(pill)
+
+        pillDot.backgroundColor = UIColor(red: 0.2, green: 0.9, blue: 0.45, alpha: 1)
+        pillDot.layer.cornerRadius = 4
+        pillDot.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(pillDot)
+
+        pillLabel.text = "Bridge"
+        pillLabel.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        pillLabel.textColor = .white
+        pillLabel.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(pillLabel)
+
+        // ---- 展开面板 ----
+        panel.backgroundColor = UIColor(red: 0.05, green: 0.06, blue: 0.08, alpha: 1)
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.isHidden = true
+        view.addSubview(panel)
 
         let grad = CAGradientLayer()
-        grad.frame = view.bounds
+        grad.frame = UIScreen.main.bounds
         grad.colors = [UIColor(red: 0.11, green: 0.14, blue: 0.22, alpha: 1).cgColor,
                        UIColor(red: 0.04, green: 0.06, blue: 0.09, alpha: 1).cgColor]
         grad.startPoint = CGPoint(x: 0, y: 0)
         grad.endPoint = CGPoint(x: 1, y: 1)
-        view.layer.insertSublayer(grad, at: 0)
+        panel.layer.insertSublayer(grad, at: 0)
 
         titleLabel.text = "iPhone Bridge"
         titleLabel.font = UIFont.systemFont(ofSize: 30, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(titleLabel)
+        panel.addSubview(titleLabel)
 
         statusLabel.numberOfLines = 0
         statusLabel.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         statusLabel.textColor = UIColor(red: 0.55, green: 0.76, blue: 1.0, alpha: 1)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(statusLabel)
+        panel.addSubview(statusLabel)
 
         logView.backgroundColor = UIColor(white: 1, alpha: 0.04)
         logView.layer.cornerRadius = 14
@@ -169,88 +213,74 @@ final class BridgeViewController: UIViewController {
         logView.font = UIFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
         logView.isEditable = false
         logView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(logView)
+        panel.addSubview(logView)
+
+        collapseButton.setTitle("收起为小圆点（继续在电脑端操作）", for: .normal)
+        collapseButton.setTitleColor(.white, for: .normal)
+        collapseButton.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        collapseButton.backgroundColor = UIColor(red: 0.16, green: 0.36, blue: 0.85, alpha: 1)
+        collapseButton.layer.cornerRadius = 12
+        collapseButton.translatesAutoresizingMaskIntoConstraints = false
+        collapseButton.addTarget(self, action: #selector(collapseTapped), for: .touchUpInside)
+        panel.addSubview(collapseButton)
 
         NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 34),
+            // 胶囊：左上角安全区内
+            pill.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10),
+            pill.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+            pill.widthAnchor.constraint(equalToConstant: 96),
+            pill.heightAnchor.constraint(equalToConstant: 32),
+            pillDot.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 12),
+            pillDot.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            pillDot.widthAnchor.constraint(equalToConstant: 8),
+            pillDot.heightAnchor.constraint(equalToConstant: 8),
+            pillLabel.leadingAnchor.constraint(equalTo: pillDot.trailingAnchor, constant: 8),
+            pillLabel.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+
+            // 展开面板铺满
+            panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panel.topAnchor.constraint(equalTo: view.topAnchor),
+            panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 24),
+            titleLabel.topAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.topAnchor, constant: 34),
             statusLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            statusLabel.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -24),
             statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14),
             logView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            logView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            logView.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -24),
             logView.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
-            logView.heightAnchor.constraint(equalToConstant: 240)
+            logView.heightAnchor.constraint(equalToConstant: 240),
+            collapseButton.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            collapseButton.topAnchor.constraint(equalTo: logView.bottomAnchor, constant: 24),
+            collapseButton.widthAnchor.constraint(equalToConstant: 280),
+            collapseButton.heightAnchor.constraint(equalToConstant: 46)
         ])
 
-        VolumeControl.shared.attach(to: view)
-
-        // 隐藏按钮 + 倒计时提示
-        hideButton.setTitle("隐藏到后台（回主屏）", for: .normal)
-        hideButton.setTitleColor(.white, for: .normal)
-        hideButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-        hideButton.backgroundColor = UIColor(red: 0.16, green: 0.36, blue: 0.85, alpha: 1)
-        hideButton.layer.cornerRadius = 12
-        hideButton.translatesAutoresizingMaskIntoConstraints = false
-        hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
-        view.addSubview(hideButton)
-
-        countdownLabel.font = UIFont.systemFont(ofSize: 12)
-        countdownLabel.textColor = UIColor(white: 0.55, alpha: 1)
-        countdownLabel.textAlignment = .center
-        countdownLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(countdownLabel)
-
-        NSLayoutConstraint.activate([
-            hideButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            hideButton.topAnchor.constraint(equalTo: logView.bottomAnchor, constant: 24),
-            hideButton.widthAnchor.constraint(equalToConstant: 220),
-            hideButton.heightAnchor.constraint(equalToConstant: 46),
-            countdownLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            countdownLabel.topAnchor.constraint(equalTo: hideButton.bottomAnchor, constant: 12)
-        ])
+        VolumeControl.shared.attach(to: panel)
 
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.refresh()
         }
 
-        // 每次激活 8 秒后自动隐藏到后台（电脑远程拉起后也自动回主屏，
-        // 避免 Bridge 界面挡在屏幕前导致点击“没反应”）
-        scheduleAutoHide(8)
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(appDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification, object: nil)
+        setExpanded(false)
+        Log.add("Bridge 已启动（小圆点模式，保持前台注入）")
     }
 
-    @objc private func appDidBecomeActive() {
-        scheduleAutoHide(8)
-    }
-
-    private func scheduleAutoHide(_ seconds: Int) {
-        hideTimer?.invalidate()
-        hideCountdown = seconds
-        updateCountdown()
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] t in
-            guard let self = self else { t.invalidate(); return }
-            self.hideCountdown -= 1
-            self.updateCountdown()
-            if self.hideCountdown <= 0 {
-                t.invalidate()
-                Log.add("自动隐藏到后台")
-                hideToBackground()
-            }
+    // MARK: 收起 / 展开
+    private func setExpanded(_ e: Bool) {
+        expanded = e
+        panel.isHidden = !e
+        pill.isHidden = e
+        if let root = view as? PassthroughView {
+            root.backgroundColor = .clear
+            root.hotspot = e ? nil : pill.frame
         }
     }
 
-    private func updateCountdown() {
-        countdownLabel.text = hideCountdown > 0 ? "\(hideCountdown) 秒后自动隐藏（后台继续服务）" : ""
-    }
-
-    @objc private func hideTapped() {
-        Log.add("手动隐藏到后台")
-        hideToBackground()
-    }
+    @objc private func pillTapped() { setExpanded(true) }
+    @objc private func collapseTapped() { setExpanded(false) }
 
     private func refresh() {
         let v = UIDevice.current
@@ -259,8 +289,9 @@ final class BridgeViewController: UIViewController {
         服务   \(HTTPServer.shared.running ? "运行中" : "未启动")  127.0.0.1:\(port)
         设备   \(v.name)  \(v.model)  iOS \(v.systemVersion)
         剪贴板 \(UIPasteboard.general.changeCount) 次变更
-        提示   保持本 App 在后台即可，勿上滑杀掉
-        点击  电脑端点按由本 App 注入系统，无需回到本界面
+        模式   \(expanded ? "面板展开" : "小圆点（屏幕不被遮挡）")
+        提示   保持本 App 在前台运行，勿上滑杀掉
+        点击  电脑端点按由本 App 注入系统（前台时有效）
         """
         logView.text = Log.lines.suffix(40).joined(separator: "\n")
         if !logView.text.isEmpty {
