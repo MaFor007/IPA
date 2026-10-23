@@ -27,7 +27,9 @@ final class Log {
 // MARK: - 隐藏到后台（私有 suspend，TrollStore 环境可用；保活音频维持后台运行）
 func hideToBackground() {
     DispatchQueue.main.async {
-        UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+        // UIApplication 私有方法 suspend()（效果等同按 Home 键回主屏）。
+        // 不能用 #selector(...)：私有方法对编译器不可见，iOS SDK 也无 NSXPCConnection。
+        UIApplication.shared.perform(Selector(("suspend")))
     }
 }
 
