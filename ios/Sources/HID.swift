@@ -90,7 +90,7 @@ final class HID {
     /// 全局注入走 monitor 类型 + hid.* 权限；后台时旧 client 会被系统失效，
     /// 因此每次动作前都重建。
     private func makeClient() -> UnsafeRawPointer? {
-        let types: [CFString] = ["monitor", "admin"]
+        let types: [CFString] = ["monitor" as CFString, "admin" as CFString]
         if let f = fnClientWithType {
             for t in types {
                 let p = unsafeBitCast(t, to: UnsafeRawPointer.self)
