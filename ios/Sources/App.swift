@@ -251,7 +251,6 @@ final class BridgeViewController: UIViewController {
         Log.add("手动隐藏到后台")
         hideToBackground()
     }
-    }
 
     private func refresh() {
         let v = UIDevice.current
