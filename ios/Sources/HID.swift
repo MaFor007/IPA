@@ -33,7 +33,8 @@ final class HID {
     ) -> UnsafeRawPointer?
 
     private typealias FnClientCreate = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
-    private typealias FnClientCreateWithType = @convention(c) (UnsafeRawPointer?, Int32, UnsafeRawPointer?) -> UnsafeRawPointer?
+    // 真实签名: IOHIDEventSystemClientCreateWithType(alloc, CFStringRef type, CFErrorRef*)
+    private typealias FnClientCreateWithType = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?, UnsafeRawPointer?) -> UnsafeRawPointer?
     private typealias FnDispatch = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?) -> Void
 
     private var fnFinger: FnFinger?
@@ -79,15 +80,47 @@ final class HID {
             fnDispatch = unsafeBitCast(p, to: FnDispatch.self)
         }
 
-        // 优先拿 admin 客户端（注入权限更足），失败退回普通客户端
-        if let f = fnClientWithType {
-            client = f(nil, 1, nil)      // kIOHIDEventSystemClientTypeAdmin = 1
-        }
-        if client == nil, let f = fnClient {
-            client = f(nil)
-        }
+        Log.add("HID: ready=\(ready) finger=\(fnFinger != nil) digitizer=\(fnDigitizer != nil) dispatch=\(fnDispatch != nil)")
+        ensureClient()
+    }
 
-        Log.add("HID: ready=\(ready) client=\(client != nil) finger=\(fnFinger != nil) digitizer=\(fnDigitizer != nil)")
+    // MARK: - 客户端
+
+    /// 新建系统 HID 客户端。类型必须是 CFString（"monitor"/"admin"），
+    /// 全局注入走 monitor 类型 + hid.* 权限；后台时旧 client 会被系统失效，
+    /// 因此每次动作前都重建。
+    private func makeClient() -> UnsafeRawPointer? {
+        let types: [CFString] = ["monitor", "admin"]
+        if let f = fnClientWithType {
+            for t in types {
+                let p = unsafeBitCast(t, to: UnsafeRawPointer.self)
+                if let c = f(nil, p, nil) {
+                    Log.add("HID: client type=\(t) ok")
+                    return c
+                }
+            }
+        }
+        if let f = fnClient {
+            if let c = f(nil) {
+                Log.add("HID: default client ok")
+                return c
+            }
+        }
+        return nil
+    }
+
+    private func ensureClient() {
+        if client == nil {
+            client = makeClient()
+        }
+    }
+
+    private func renewClient() {
+        if let old = client {
+            Unmanaged<CFTypeRef>.fromOpaque(old).release()
+            client = nil
+        }
+        client = makeClient()
     }
 
     // MARK: - 基础
@@ -142,6 +175,7 @@ final class HID {
     func tap(x: CGFloat, y: CGFloat) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
+        renewClient()
         touchIndex = touchIndex &+ 1
         // down
         dispatch(makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition))
@@ -155,6 +189,7 @@ final class HID {
     func longPress(x: CGFloat, y: CGFloat, seconds: Double) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
+        renewClient()
         touchIndex = touchIndex &+ 1
         dispatch(makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition))
         let deadline = Date().addingTimeInterval(max(0.2, min(seconds, 10)))
@@ -170,6 +205,7 @@ final class HID {
     func swipe(x1: CGFloat, y1: CGFloat, x2: CGFloat, y2: CGFloat, duration: Double) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
+        renewClient()
         touchIndex = touchIndex &+ 1
         dispatch(makeTouch(px: x1, py: y1, down: true, phase: maskRange | maskTouch | maskPosition))
 
@@ -186,9 +222,13 @@ final class HID {
         return true
     }
 
-    /// 回到主屏：从底部上滑
+    /// 回到主屏：键盘 Home 键（全局生效）+ 底部上滑双保险
     @discardableResult
     func home() -> Bool {
+        // Consumer 页 Home 键（page 0x0C usage 0x40 = Menu/Home）
+        key(0x0C, 0x40, true)
+        usleep(20_000)
+        key(0x0C, 0x40, false)
         let s = screenSize
         return swipe(x1: s.width / 2, y1: s.height - 6, x2: s.width / 2, y2: s.height * 0.45, duration: 0.28)
     }
@@ -196,7 +236,9 @@ final class HID {
     // MARK: - 键盘
 
     private func key(_ page: UInt16, _ usage: UInt16, _ down: Bool) {
-        guard let f = fnKeyboard, let d = fnDispatch, let c = client else { return }
+        guard let f = fnKeyboard, let d = fnDispatch else { return }
+        ensureClient()
+        guard let c = client else { return }
         if let ev = f(nil, mach_absolute_time(), page, usage, down, 0) {
             d(c, ev)
             Unmanaged<CFTypeRef>.fromOpaque(ev).release()

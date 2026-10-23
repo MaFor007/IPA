@@ -32,6 +32,14 @@
 	<true/>
 	<key>com.apple.private.hid.client.admin</key>
 	<true/>
+	<key>com.apple.private.hid.client.monitor</key>
+	<true/>
+	<key>com.apple.private.hid.client.manager</key>
+	<true/>
+	<key>com.apple.private.hid.manager.user-access-device</key>
+	<true/>
+	<key>com.apple.private.hid.system.user-access-service</key>
+	<true/>
 	<key>com.apple.private.hid.interface.client</key>
 	<true/>
 	<key>com.apple.private.iokit.user-client-open</key>

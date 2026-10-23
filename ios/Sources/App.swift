@@ -149,8 +149,10 @@ final class BridgeViewController: UIViewController {
     private let panel = UIView()
     private let titleLabel = UILabel()
     private let collapseButton = UIButton(type: .system)
+    private let hideButton = UIButton(type: .system)
 
     private var timer: Timer?
+    private var hideTimer: Timer?
     private var expanded = false
 
     override func viewDidLoad() {
@@ -224,6 +226,15 @@ final class BridgeViewController: UIViewController {
         collapseButton.addTarget(self, action: #selector(collapseTapped), for: .touchUpInside)
         panel.addSubview(collapseButton)
 
+        hideButton.setTitle("隐藏到后台（推荐：后台继续注入）", for: .normal)
+        hideButton.setTitleColor(.white, for: .normal)
+        hideButton.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        hideButton.backgroundColor = UIColor(red: 0.16, green: 0.55, blue: 0.35, alpha: 1)
+        hideButton.layer.cornerRadius = 12
+        hideButton.translatesAutoresizingMaskIntoConstraints = false
+        hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
+        panel.addSubview(hideButton)
+
         NSLayoutConstraint.activate([
             // 胶囊：左上角安全区内
             pill.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10),
@@ -254,7 +265,11 @@ final class BridgeViewController: UIViewController {
             collapseButton.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
             collapseButton.topAnchor.constraint(equalTo: logView.bottomAnchor, constant: 24),
             collapseButton.widthAnchor.constraint(equalToConstant: 280),
-            collapseButton.heightAnchor.constraint(equalToConstant: 46)
+            collapseButton.heightAnchor.constraint(equalToConstant: 46),
+            hideButton.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            hideButton.topAnchor.constraint(equalTo: collapseButton.bottomAnchor, constant: 14),
+            hideButton.widthAnchor.constraint(equalToConstant: 280),
+            hideButton.heightAnchor.constraint(equalToConstant: 46)
         ])
 
         VolumeControl.shared.attach(to: panel)
@@ -265,7 +280,11 @@ final class BridgeViewController: UIViewController {
         }
 
         setExpanded(false)
-        Log.add("Bridge 已启动（小圆点模式，保持前台注入）")
+        Log.add("Bridge 已启动（小圆点模式，8 秒后自动回后台）")
+        scheduleAutoHide(8)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     // MARK: 收起 / 展开
@@ -279,8 +298,42 @@ final class BridgeViewController: UIViewController {
         }
     }
 
-    @objc private func pillTapped() { setExpanded(true) }
-    @objc private func collapseTapped() { setExpanded(false) }
+    @objc private func appDidBecomeActive() {
+        // 展开面板时不要自动隐藏；小圆点模式 8 秒后回后台
+        if !expanded { scheduleAutoHide(8) }
+    }
+
+    private func scheduleAutoHide(_ seconds: Int) {
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(seconds), repeats: false) { [weak self] _ in
+            guard let self = self, !self.expanded else { return }
+            Log.add("自动隐藏到后台")
+            self.hideToBackground()
+        }
+    }
+
+    private func hideToBackground() {
+        DispatchQueue.main.async {
+            // 私有方法 suspend()（等同按 Home 回主屏）；不能 #selector（iOS SDK 无 NSXPCConnection）
+            UIApplication.shared.perform(Selector(("suspend")))
+        }
+    }
+
+    @objc private func pillTapped() {
+        hideTimer?.invalidate()
+        setExpanded(true)
+    }
+
+    @objc private func collapseTapped() {
+        setExpanded(false)
+        scheduleAutoHide(8)
+    }
+
+    @objc private func hideTapped() {
+        hideTimer?.invalidate()
+        Log.add("手动隐藏到后台")
+        hideToBackground()
+    }
 
     private func refresh() {
         let v = UIDevice.current
