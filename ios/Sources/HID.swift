@@ -15,16 +15,16 @@ final class HID {
 
     private var handle: UnsafeMutableRawPointer?
 
-    // IOHIDEventCreateDigitizerFingerEvent
+    // IOHIDEventCreateDigitizerFingerEvent —— 真实签名 13 参，坐标/压力是 Float！
     private typealias FnFinger = @convention(c) (
         UnsafeRawPointer?, UInt64, UInt32, UInt32, UInt32,
-        Int32, Int32, Int32, Int32, Bool, Bool, UInt32
+        Float, Float, Float, Float, Float, Bool, Bool, UInt32
     ) -> UnsafeRawPointer?
 
-    // IOHIDEventCreateDigitizerEvent
+    // IOHIDEventCreateDigitizerEvent —— 15 参，坐标/压力 Float
     private typealias FnDigitizer = @convention(c) (
         UnsafeRawPointer?, UInt64, UInt32, UInt32, UInt32, UInt32, UInt32,
-        Int32, Int32, Int32, Int32, Int32, Bool, Bool, UInt32
+        Float, Float, Float, Float, Float, Bool, Bool, UInt32
     ) -> UnsafeRawPointer?
 
     // IOHIDEventCreateKeyboardEvent
@@ -44,6 +44,12 @@ final class HID {
     private typealias FnBksCtx = @convention(c) () -> UInt32
     private typealias FnBksInfo5 = @convention(c) (UnsafeRawPointer?, UInt32, UInt32, Bool, UnsafeRawPointer?) -> Void
     private typealias FnBksInfo7 = @convention(c) (UnsafeRawPointer?, UInt32, UInt32, Bool, UnsafeRawPointer?, Double, Double) -> Void
+    // IOHIDEventSetSenderID(event, UInt64)
+    private typealias FnSetSender = @convention(c) (UnsafeRawPointer?, UInt64) -> Void
+    // IOHIDEventSetIntegerValueWithOptions(event, field, value, options)
+    private typealias FnSetIntOpts = @convention(c) (UnsafeRawPointer?, UInt32, Int64, Int64) -> Void
+    // IOHIDEventSetFloatValue(event, field, Float)
+    private typealias FnSetFloat = @convention(c) (UnsafeRawPointer?, UInt32, Float) -> Void
 
     private var fnFinger: FnFinger?
     private var fnDigitizer: FnDigitizer?
@@ -56,10 +62,16 @@ final class HID {
     private var fnBksCtx: FnBksCtx?
     private var fnBksInfo5: FnBksInfo5?
     private var fnBksInfo7: FnBksInfo7?
+    private var fnSetSender: FnSetSender?
+    private var fnSetIntOpts: FnSetIntOpts?
+    private var fnSetFloat: FnSetFloat?
     private var client: UnsafeRawPointer?
 
     private var touchIndex: UInt32 = 1
     private let lock = NSLock()
+
+    /// 触摸事件 SenderID：系统拒绝 0；SimulateTouch 实测可用值
+    var senderID: UInt64 = 0x000000010000027F
 
     var ready: Bool { fnDispatch != nil && (fnFinger != nil || fnDigitizer != nil) }
 
@@ -97,6 +109,15 @@ final class HID {
         }
         if let p = dlsym(h, "IOHIDEventAppendEvent") {
             fnAppend = unsafeBitCast(p, to: FnAppend.self)
+        }
+        if let p = dlsym(h, "IOHIDEventSetSenderID") {
+            fnSetSender = unsafeBitCast(p, to: FnSetSender.self)
+        }
+        if let p = dlsym(h, "IOHIDEventSetIntegerValueWithOptions") {
+            fnSetIntOpts = unsafeBitCast(p, to: FnSetIntOpts.self)
+        }
+        if let p = dlsym(h, "IOHIDEventSetFloatValue") {
+            fnSetFloat = unsafeBitCast(p, to: FnSetFloat.self)
         }
 
         // BackBoardServices：数字触摸事件必须带屏幕 contextID 才能被路由
@@ -190,8 +211,11 @@ final class HID {
         return ["ok": true, "type": raw, "action": "key", "page": Int(page), "usage": Int(usage)]
     }
 
-    func probeTap(kind raw: String, x: CGFloat, y: CGFloat) -> [String: Any] {
+    func probeTap(kind raw: String, x: CGFloat, y: CGFloat, sender: UInt64? = nil) -> [String: Any] {
         lock.lock(); defer { lock.unlock() }
+        let saved = senderID
+        if let s = sender { senderID = s }
+        defer { senderID = saved }
         guard let d = fnDispatch else { return ["ok": false, "error": "dispatch 缺失"] }
         guard let c = probeClient(raw) else {
             return ["ok": false, "type": raw, "error": "client 创建失败"]
@@ -293,24 +317,41 @@ final class HID {
         return nil
     }
 
-    /// 构造完整触摸事件：父 digitizer 事件包裹 finger（社区注入工具标准做法），
-    /// 父事件同样标记 IsDisplayIntegrated。
+    /// SimulateTouch/Veency 同款事件结构：
+    /// Hand 父事件(transducer=3) + finger 子事件，归一化 Float 坐标，
+    /// SenderID 必须非 0（否则系统拒绝），DisplayIntegrated/BuiltIn 用 -268435456 options 置位。
+    private let kOptAbs: Int64 = -268435456
+
     private func makeTouch(px: CGFloat, py: CGFloat, down: Bool, phase: UInt32) -> UnsafeRawPointer? {
-        guard let finger = makeFinger(px: px, py: py, down: down, phase: phase) else { return nil }
-        if let ap = fnAppend, let dg = fnDigitizer {
-            let size = screenSize
-            let fx = fixed(px / max(size.width, 1))
-            let fy = fixed(py / max(size.height, 1))
-            let pressure: Int32 = down ? 65536 : 0
-            if let parent = dg(nil, mach_absolute_time(), 2, touchIndex, touchIndex, phase, 0,
-                               fx, fy, 0, pressure, 0, down, down, 0) {
-                fnSetInt?(parent, fieldDisplayIntegrated, 1)
-                _ = ap(parent, finger, 0)
-                // finger 由 parent 持有（append 内部 retain）；此处有意不 release，避免过度释放
-                return parent
-            }
+        guard let dg = fnDigitizer, let fg = fnFinger else { return nil }
+        let size = screenSize
+        let fx = Float(px / max(size.width, 1))
+        let fy = Float(py / max(size.height, 1))
+        let ts = mach_absolute_time()
+
+        // 父 hand 事件：type=3(kIOHIDTransducerTypeHand), index=0, identity=1, 全零字段
+        guard let hand = dg(nil, ts, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0) else { return nil }
+        fnSetIntOpts?(hand, 0x2C, 1, kOptAbs)      // DisplayIntegrated
+        fnSetIntOpts?(hand, 720921, 1, kOptAbs)    // iosre 实践用字段变体
+        fnSetSender?(hand, senderID)
+
+        // finger 子事件：index=1, identity=3, 归一化 Float 坐标
+        guard let finger = fg(nil, ts, 1, 3, phase, fx, fy, 0, 0, 0, down, down, 0) else {
+            Unmanaged<CFTypeRef>.fromOpaque(hand).release()
+            return nil
         }
-        return finger
+        fnSetSender?(finger, senderID)
+        fnSetFloat?(finger, 0x28, 0.04)   // MajorRadius
+        fnSetFloat?(finger, 0x29, 0.04)   // MinorRadius
+        _ = fnAppend?(hand, finger, 0)
+        // finger 由 hand 持有（append 内部 retain），有意不 release
+
+        // hand 层聚合字段（SimulateTouch 同款）
+        fnSetIntOpts?(hand, 0x21, Int64(phase), kOptAbs)             // EventMask
+        let t: Int64 = down ? 1 : 0
+        fnSetIntOpts?(hand, 0x22, t, kOptAbs)                        // Range
+        fnSetIntOpts?(hand, 0x23, t, kOptAbs)                        // Touch
+        return hand
     }
 
     private func dispatchTo(_ c: UnsafeRawPointer?, _ ev: UnsafeRawPointer?) {

@@ -180,6 +180,16 @@ enum Router {
                 let v = (b["variant"] as? Int) ?? 5
                 return json(HID.shared.probeTapBKS(x: pt.x, y: pt.y, variant: v))
             }
+            if action == "tapst" {
+                let pt = point(b)
+                var sender: UInt64? = nil
+                if let s = b["sender"] as? String {
+                    sender = s.hasPrefix("0x") ? UInt64(s.dropFirst(2), radix: 16) : UInt64(s)
+                } else if let n = b["sender"] as? Int {
+                    sender = UInt64(bitPattern: Int64(n))
+                }
+                return json(HID.shared.probeTap(kind: "default", x: pt.x, y: pt.y, sender: sender))
+            }
             let page = UInt16((b["page"] as? Int) ?? 0x0C)
             let usage = UInt16((b["usage"] as? Int) ?? 0x40)
             return json(HID.shared.probe(kind: kind, page: page, usage: usage))
