@@ -40,6 +40,10 @@ final class HID {
     private typealias FnSetInt = @convention(c) (UnsafeRawPointer?, UInt32, Int32) -> Void
     // IOHIDEventAppendEvent(parent, child, options)
     private typealias FnAppend = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?, UInt32) -> UnsafeRawPointer?
+    // BackBoardServices
+    private typealias FnBksCtx = @convention(c) () -> UInt32
+    private typealias FnBksInfo5 = @convention(c) (UnsafeRawPointer?, UInt32, UInt32, Bool, UnsafeRawPointer?) -> Void
+    private typealias FnBksInfo7 = @convention(c) (UnsafeRawPointer?, UInt32, UInt32, Bool, UnsafeRawPointer?, Double, Double) -> Void
 
     private var fnFinger: FnFinger?
     private var fnDigitizer: FnDigitizer?
@@ -49,6 +53,9 @@ final class HID {
     private var fnDispatch: FnDispatch?
     private var fnSetInt: FnSetInt?
     private var fnAppend: FnAppend?
+    private var fnBksCtx: FnBksCtx?
+    private var fnBksInfo5: FnBksInfo5?
+    private var fnBksInfo7: FnBksInfo7?
     private var client: UnsafeRawPointer?
 
     private var touchIndex: UInt32 = 1
@@ -92,6 +99,22 @@ final class HID {
             fnAppend = unsafeBitCast(p, to: FnAppend.self)
         }
 
+        // BackBoardServices：数字触摸事件必须带屏幕 contextID 才能被路由
+        for path in ["/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices"] {
+            if let b = dlopen(path, RTLD_LAZY) {
+                if let p = dlsym(b, "BKSDisplayServerGetMainDisplayContextId") {
+                    fnBksCtx = unsafeBitCast(p, to: FnBksCtx.self)
+                    Log.add("HID: bks ctx ok")
+                }
+                if let p = dlsym(b, "BKSHIDEventSetDigitizerInfo") {
+                    fnBksInfo5 = unsafeBitCast(p, to: FnBksInfo5.self)
+                    fnBksInfo7 = unsafeBitCast(p, to: FnBksInfo7.self)
+                    Log.add("HID: bks setDigitizerInfo ok")
+                }
+                break
+            }
+        }
+
         Log.add("HID: ready=\(ready) finger=\(fnFinger != nil) digitizer=\(fnDigitizer != nil) dispatch=\(fnDispatch != nil)")
         ensureClient()
     }
@@ -102,7 +125,14 @@ final class HID {
     /// 全局注入走 monitor 类型 + hid.* 权限；后台时旧 client 会被系统失效，
     /// 因此每次动作前都重建。
     private func makeClient() -> UnsafeRawPointer? {
-        let types: [CFString] = ["monitor" as CFString, "admin" as CFString, "post" as CFString]
+        // default 已实测可后台派发（monitor 只能监听），故 default 最优先
+        if let f = fnClient {
+            if let c = f(nil) {
+                Log.add("HID: client type=default ok")
+                return c
+            }
+        }
+        let types: [CFString] = ["admin" as CFString, "monitor" as CFString, "post" as CFString]
         if let f = fnClientWithType {
             for t in types {
                 let p = unsafeBitCast(t, to: UnsafeRawPointer.self)
@@ -110,12 +140,6 @@ final class HID {
                     Log.add("HID: client type=\(t) ok")
                     return c
                 }
-            }
-        }
-        if let f = fnClient {
-            if let c = f(nil) {
-                Log.add("HID: default client ok")
-                return c
             }
         }
         return nil
@@ -186,6 +210,42 @@ final class HID {
         d(c, up)
         Unmanaged<CFTypeRef>.fromOpaque(up).release()
         return ["ok": true, "type": raw, "action": "tap"]
+    }
+
+    /// BKS 路径：数字触摸事件附上主屏 contextID 后派发（Veency 同款）。
+    /// variant: 5/7 两种 ABI 参数个数都试。
+    func probeTapBKS(x: CGFloat, y: CGFloat, variant: Int) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        guard let d = fnDispatch else { return ["ok": false, "error": "dispatch 缺失"] }
+        guard let ctxFn = fnBksCtx else { return ["ok": false, "error": "BKSDisplayServerGetMainDisplayContextId 缺失"] }
+        let ctxId = ctxFn()
+        guard let c = fnClient.flatMap({ $0(nil) }) else { return ["ok": false, "error": "default client 创建失败"] }
+        defer { Unmanaged<CFTypeRef>.fromOpaque(c).release() }
+        touchIndex = touchIndex &+ 1
+
+        func bks(_ ev: UnsafeRawPointer?) {
+            guard let ev = ev else { return }
+            switch variant {
+            case 5: fnBksInfo5?(ev, ctxId, 0, false, nil)
+            case 7: fnBksInfo7?(ev, ctxId, 0, false, nil, 0, 0)
+            default: break
+            }
+        }
+
+        guard let ev = makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition) else {
+            return ["ok": false, "error": "事件构造失败"]
+        }
+        bks(ev)
+        d(c, ev)
+        Unmanaged<CFTypeRef>.fromOpaque(ev).release()
+        usleep(60_000)
+        guard let up = makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition) else {
+            return ["ok": false, "error": "事件构造失败"]
+        }
+        bks(up)
+        d(c, up)
+        Unmanaged<CFTypeRef>.fromOpaque(up).release()
+        return ["ok": true, "type": "default-bks", "action": "tapbks", "variant": variant, "ctxId": Int(ctxId)]
     }
 
     // MARK: - 基础

@@ -175,6 +175,11 @@ enum Router {
                 let pt = point(b)
                 return json(HID.shared.probeTap(kind: kind, x: pt.x, y: pt.y))
             }
+            if action == "tapbks" {
+                let pt = point(b)
+                let v = (b["variant"] as? Int) ?? 5
+                return json(HID.shared.probeTapBKS(x: pt.x, y: pt.y, variant: v))
+            }
             let page = UInt16((b["page"] as? Int) ?? 0x0C)
             let usage = UInt16((b["usage"] as? Int) ?? 0x40)
             return json(HID.shared.probe(kind: kind, page: page, usage: usage))
