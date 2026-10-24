@@ -283,40 +283,6 @@ final class HID {
         return s
     }
 
-    private func fixed(_ v: CGFloat) -> Int32 {
-        let c = max(0.0, min(1.0, v))
-        return Int32(c * 65536.0)
-    }
-
-    /// kIOHIDEventFieldDigitizerIsDisplayIntegrated = 0x2C。
-    /// 内建屏幕的手指事件必须置 1，否则 SpringBoard 直接丢弃。
-    private let fieldDisplayIntegrated: UInt32 = 0x2C
-
-    private func makeFinger(px: CGFloat, py: CGFloat, down: Bool, phase: UInt32) -> UnsafeRawPointer? {
-        let size = screenSize
-        let fx = fixed(px / max(size.width, 1))
-        let fy = fixed(py / max(size.height, 1))
-        let ts = mach_absolute_time()
-        let pressure: Int32 = down ? 65536 : 0   // 1.0 固定点；压力为 0 会被忽略
-
-        if let f = fnFinger {
-            // (alloc, ts, index, identity, mask, x, y, z, pressure, range, touch, options)
-            if let ev = f(nil, ts, touchIndex, touchIndex, phase, fx, fy, 0, pressure, down, down, 0) {
-                fnSetInt?(ev, fieldDisplayIntegrated, 1)
-                return ev
-            }
-        }
-        if let f = fnDigitizer {
-            // type: kIOHIDDigitizerTransducerTypeFinger = 2
-            if let ev = f(nil, ts, 2, touchIndex, touchIndex, phase, 0,
-                          fx, fy, 0, pressure, 0, down, down, 0) {
-                fnSetInt?(ev, fieldDisplayIntegrated, 1)
-                return ev
-            }
-        }
-        return nil
-    }
-
     /// SimulateTouch/Veency 同款事件结构：
     /// Hand 父事件(transducer=3) + finger 子事件，归一化 Float 坐标，
     /// SenderID 必须非 0（否则系统拒绝），DisplayIntegrated/BuiltIn 用 -268435456 options 置位。
