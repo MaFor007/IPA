@@ -15,16 +15,16 @@ final class HID {
 
     private var handle: UnsafeMutableRawPointer?
 
-    // IOHIDEventCreateDigitizerFingerEvent —— 真实签名 13 参，坐标/压力是 Float！
+    // IOHIDEventCreateDigitizerFingerEvent —— 真实签名 13 参，坐标/压力是 Double（IOHIDFloat=double）！
     private typealias FnFinger = @convention(c) (
         UnsafeRawPointer?, UInt64, UInt32, UInt32, UInt32,
-        Float, Float, Float, Float, Float, Bool, Bool, UInt32
+        Double, Double, Double, Double, Double, Bool, Bool, UInt32
     ) -> UnsafeRawPointer?
 
-    // IOHIDEventCreateDigitizerEvent —— 15 参，坐标/压力 Float
+    // IOHIDEventCreateDigitizerEvent —— 15 参，坐标/压力 Double
     private typealias FnDigitizer = @convention(c) (
         UnsafeRawPointer?, UInt64, UInt32, UInt32, UInt32, UInt32, UInt32,
-        Float, Float, Float, Float, Float, Bool, Bool, UInt32
+        Double, Double, Double, Double, Double, Bool, Bool, UInt32
     ) -> UnsafeRawPointer?
 
     // IOHIDEventCreateKeyboardEvent
@@ -36,8 +36,8 @@ final class HID {
     // 真实签名: IOHIDEventSystemClientCreateWithType(alloc, CFStringRef type, CFErrorRef*)
     private typealias FnClientCreateWithType = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?, UnsafeRawPointer?) -> UnsafeRawPointer?
     private typealias FnDispatch = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?) -> Void
-    // IOHIDEventSetInteger(event, field, value)
-    private typealias FnSetInt = @convention(c) (UnsafeRawPointer?, UInt32, Int32) -> Void
+    // IOHIDEventSetInteger(event, field, value)  CFIndex=64位
+    private typealias FnSetInt = @convention(c) (UnsafeRawPointer?, UInt32, Int64) -> Void
     // IOHIDEventAppendEvent(parent, child, options)
     private typealias FnAppend = @convention(c) (UnsafeRawPointer?, UnsafeRawPointer?, UInt32) -> UnsafeRawPointer?
     // BackBoardServices
@@ -48,8 +48,8 @@ final class HID {
     private typealias FnSetSender = @convention(c) (UnsafeRawPointer?, UInt64) -> Void
     // IOHIDEventSetIntegerValueWithOptions(event, field, value, options)
     private typealias FnSetIntOpts = @convention(c) (UnsafeRawPointer?, UInt32, Int64, Int64) -> Void
-    // IOHIDEventSetFloatValue(event, field, Float)
-    private typealias FnSetFloat = @convention(c) (UnsafeRawPointer?, UInt32, Float) -> Void
+    // IOHIDEventSetFloatValue(event, field, IOHIDFloat=Double)
+    private typealias FnSetFloat = @convention(c) (UnsafeRawPointer?, UInt32, Double) -> Void
 
     private var fnFinger: FnFinger?
     private var fnDigitizer: FnDigitizer?
@@ -67,11 +67,12 @@ final class HID {
     private var fnSetFloat: FnSetFloat?
     private var client: UnsafeRawPointer?
 
-    private var touchIndex: UInt32 = 1
     private let lock = NSLock()
 
-    /// 触摸事件 SenderID：系统拒绝 0；SimulateTouch 实测可用值
-    var senderID: UInt64 = 0x000000010000027F
+    /// 触摸事件 SenderID（TrollVNC 验证值）：
+    /// 0x10000027F = Voice-Over 专用（触摸会被忽略！）；0xDEFACEDBEEFFECE5 已过期；
+    /// 0x8000000817319371 = iOS 9+；0x8000000817319372 = iOS 14.8 ~ iOS 26
+    var senderID: UInt64 = 0x8000000817319372
 
     var ready: Bool { fnDispatch != nil && (fnFinger != nil || fnDigitizer != nil) }
 
@@ -172,14 +173,6 @@ final class HID {
         }
     }
 
-    private func renewClient() {
-        if let old = client {
-            Unmanaged<CFTypeRef>.fromOpaque(old).release()
-            client = nil
-        }
-        client = makeClient()
-    }
-
     // MARK: - 客户端类型探测（/hidtest）
     /// 用指定类型的临时客户端派发一个事件，不动主 client。
     /// monitor 可能只能监听不能派发；default/admin/post/passive 逐个试。
@@ -221,14 +214,13 @@ final class HID {
             return ["ok": false, "type": raw, "error": "client 创建失败"]
         }
         defer { Unmanaged<CFTypeRef>.fromOpaque(c).release() }
-        touchIndex = touchIndex &+ 1
-        guard let ev = makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition) else {
+        guard let ev = makeTouch(.down, px: x, py: y) else {
             return ["ok": false, "error": "事件构造失败"]
         }
         d(c, ev)
         Unmanaged<CFTypeRef>.fromOpaque(ev).release()
-        usleep(50_000)
-        guard let up = makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition) else {
+        usleep(60_000)
+        guard let up = makeTouch(.lift, px: x, py: y) else {
             return ["ok": false, "error": "事件构造失败"]
         }
         d(c, up)
@@ -245,7 +237,6 @@ final class HID {
         let ctxId = ctxFn()
         guard let c = fnClient.flatMap({ $0(nil) }) else { return ["ok": false, "error": "default client 创建失败"] }
         defer { Unmanaged<CFTypeRef>.fromOpaque(c).release() }
-        touchIndex = touchIndex &+ 1
 
         func bks(_ ev: UnsafeRawPointer?) {
             guard let ev = ev else { return }
@@ -256,14 +247,14 @@ final class HID {
             }
         }
 
-        guard let ev = makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition) else {
+        guard let ev = makeTouch(.down, px: x, py: y) else {
             return ["ok": false, "error": "事件构造失败"]
         }
         bks(ev)
         d(c, ev)
         Unmanaged<CFTypeRef>.fromOpaque(ev).release()
         usleep(60_000)
-        guard let up = makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition) else {
+        guard let up = makeTouch(.lift, px: x, py: y) else {
             return ["ok": false, "error": "事件构造失败"]
         }
         bks(up)
@@ -283,41 +274,70 @@ final class HID {
         return s
     }
 
-    /// SimulateTouch/Veency 同款事件结构：
-    /// Hand 父事件(transducer=3) + finger 子事件，归一化 Float 坐标，
-    /// SenderID 必须非 0（否则系统拒绝），DisplayIntegrated/BuiltIn 用 -268435456 options 置位。
-    private let kOptAbs: Int64 = -268435456
+    // MARK: - 触摸事件构造（TrollVNC 验证实现移植）
 
-    private func makeTouch(px: CGFloat, py: CGFloat, down: Bool, phase: UInt32) -> UnsafeRawPointer? {
+    // IOHIDEventField 常量（编码 = (事件类型<<16)|偏移，Digitizer 类型=11）
+    private let kFieldIsBuiltIn: UInt32 = 4                  // (0<<16)|4
+    private let kFieldDigitizerMajorRadius: UInt32 = 720_900 // (11<<16)|20 = 0xB0014
+    private let kFieldDigitizerMinorRadius: UInt32 = 720_901 // 0xB0015
+    private let kFieldDigitizerIsDisplayIntegrated: UInt32 = 720_921 // 0xB0019
+
+    // IOHIDDigitizerEventMask
+    private let evRange: UInt32 = 0x01
+    private let evTouch: UInt32 = 0x02
+    private let evPosition: UInt32 = 0x04
+    private let evIdentity: UInt32 = 0x20
+    private let evAttribute: UInt32 = 0x40
+
+    /// kIOHIDDigitizerTransducerTypeHand = 3
+    private let transducerHand: UInt32 = 3
+    /// 手指标识（TrollVNC: index=identity=同一 fingerID，从 2 开始）
+    private let fingerID: UInt32 = 2
+    /// TrollVNC 默认手指半径 = 5
+    private let defaultRadius: Double = 5
+
+    private enum TouchPhaseKind { case down, move, lift }
+
+    /// TrollVNC 同款：Hand 父事件带 phase 对应 eventMask + finger 子事件，
+    /// 归一化 Double 坐标，radius=5，twist=90。
+    private func makeTouch(_ phase: TouchPhaseKind, px: CGFloat, py: CGFloat) -> UnsafeRawPointer? {
         guard let dg = fnDigitizer, let fg = fnFinger else { return nil }
         let size = screenSize
-        let fx = Float(px / max(size.width, 1))
-        let fy = Float(py / max(size.height, 1))
+        let x = Double(px / max(size.width, 1))
+        let y = Double(py / max(size.height, 1))
         let ts = mach_absolute_time()
 
-        // 父 hand 事件：type=3(kIOHIDTransducerTypeHand), index=0, identity=1, 全零字段
-        guard let hand = dg(nil, ts, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, false, false, 0) else { return nil }
-        fnSetIntOpts?(hand, 0x2C, 1, kOptAbs)      // DisplayIntegrated
-        fnSetIntOpts?(hand, 720921, 1, kOptAbs)    // iosre 实践用字段变体
+        // hand 层：down/lift → Touch|Identity；move → Position|Attribute
+        let touching = phase != .lift
+        let handMask: UInt32
+        switch phase {
+        case .down, .lift: handMask = evTouch | evIdentity
+        case .move:        handMask = evPosition | evAttribute
+        }
+        // 创建：transducer=3, index=0, identity=0, button=0, x/y/z/pressure/twist=0, range=false, touch=touching
+        guard let hand = dg(nil, ts, transducerHand, 0, 0, handMask, 0,
+                            0, 0, 0, 0, 0, false, touching, 0) else { return nil }
+        fnSetInt?(hand, kFieldIsBuiltIn, 1)
+        fnSetInt?(hand, kFieldDigitizerIsDisplayIntegrated, 1)
         fnSetSender?(hand, senderID)
 
-        // finger 子事件：index=1, identity=3, 归一化 Float 坐标
-        guard let finger = fg(nil, ts, 1, 3, phase, fx, fy, 0, 0, 0, down, down, 0) else {
+        // finger 层：与 hand 同 mask；down/move → range=touch=true，lift → false
+        guard let finger = fg(nil, ts, fingerID, fingerID, handMask,
+                              x, y, 0, 0, 90, touching, touching, 0) else {
             Unmanaged<CFTypeRef>.fromOpaque(hand).release()
             return nil
         }
-        fnSetSender?(finger, senderID)
-        fnSetFloat?(finger, 0x28, 0.04)   // MajorRadius
-        fnSetFloat?(finger, 0x29, 0.04)   // MinorRadius
+        let radius: Double = touching ? defaultRadius : 0
+        fnSetFloat?(finger, kFieldDigitizerMajorRadius, radius)
+        fnSetFloat?(finger, kFieldDigitizerMinorRadius, radius)
         _ = fnAppend?(hand, finger, 0)
-        // finger 由 hand 持有（append 内部 retain），有意不 release
-
-        // hand 层聚合字段（SimulateTouch 同款）
-        fnSetIntOpts?(hand, 0x21, Int64(phase), kOptAbs)             // EventMask
-        let t: Int64 = down ? 1 : 0
-        fnSetIntOpts?(hand, 0x22, t, kOptAbs)                        // Range
-        fnSetIntOpts?(hand, 0x23, t, kOptAbs)                        // Touch
+        Unmanaged<CFTypeRef>.fromOpaque(finger).release() // append 已 retain
         return hand
+    }
+
+    private func dispatchTouch(_ phase: TouchPhaseKind, px: CGFloat, py: CGFloat) {
+        guard let ev = makeTouch(phase, px: px, py: py) else { return }
+        dispatchTo(client, ev)
     }
 
     private func dispatchTo(_ c: UnsafeRawPointer?, _ ev: UnsafeRawPointer?) {
@@ -329,28 +349,16 @@ final class HID {
         Unmanaged<CFTypeRef>.fromOpaque(ev).release()
     }
 
-    private func dispatch(_ ev: UnsafeRawPointer?) {
-        dispatchTo(client, ev)
-    }
-
-    // 事件掩码
-    private let maskRange: UInt32 = 0x01
-    private let maskTouch: UInt32 = 0x02
-    private let maskPosition: UInt32 = 0x04
-
     // MARK: - 对外动作
 
     @discardableResult
     func tap(x: CGFloat, y: CGFloat) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
-        renewClient()
-        touchIndex = touchIndex &+ 1
-        // down
-        dispatch(makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition))
-        usleep(40_000)
-        // up（up 也要带 Position，部分系统版本要求）
-        dispatch(makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition))
+        ensureClient()
+        dispatchTouch(.down, px: x, py: y)
+        usleep(60_000)
+        dispatchTouch(.lift, px: x, py: y)
         return true
     }
 
@@ -358,15 +366,14 @@ final class HID {
     func longPress(x: CGFloat, y: CGFloat, seconds: Double) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
-        renewClient()
-        touchIndex = touchIndex &+ 1
-        dispatch(makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition))
+        ensureClient()
+        dispatchTouch(.down, px: x, py: y)
         let deadline = Date().addingTimeInterval(max(0.2, min(seconds, 10)))
         while Date() < deadline {
             usleep(120_000)
-            dispatch(makeTouch(px: x, py: y, down: true, phase: maskPosition | maskTouch | maskRange))
+            dispatchTouch(.move, px: x, py: y)
         }
-        dispatch(makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition))
+        dispatchTouch(.lift, px: x, py: y)
         return true
     }
 
@@ -374,9 +381,8 @@ final class HID {
     func swipe(x1: CGFloat, y1: CGFloat, x2: CGFloat, y2: CGFloat, duration: Double) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard ready else { return false }
-        renewClient()
-        touchIndex = touchIndex &+ 1
-        dispatch(makeTouch(px: x1, py: y1, down: true, phase: maskRange | maskTouch | maskPosition))
+        ensureClient()
+        dispatchTouch(.down, px: x1, py: y1)
 
         let steps = max(8, Int(duration * 60))
         let dt = max(4_000, Int(duration / Double(steps) * 1_000_000))
@@ -384,10 +390,10 @@ final class HID {
             let t = CGFloat(i) / CGFloat(steps)
             let px = x1 + (x2 - x1) * t
             let py = y1 + (y2 - y1) * t
-            dispatch(makeTouch(px: px, py: py, down: true, phase: maskPosition | maskTouch | maskRange))
+            dispatchTouch(.move, px: px, py: py)
             usleep(useconds_t(dt))
         }
-        dispatch(makeTouch(px: x2, py: y2, down: false, phase: maskRange | maskTouch | maskPosition))
+        dispatchTouch(.lift, px: x2, py: y2)
         return true
     }
 
