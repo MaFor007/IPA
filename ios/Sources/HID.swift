@@ -296,7 +296,7 @@ final class HID {
         let ts = mach_absolute_time()
 
         // 父 hand 事件：type=3(kIOHIDTransducerTypeHand), index=0, identity=1, 全零字段
-        guard let hand = dg(nil, ts, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0) else { return nil }
+        guard let hand = dg(nil, ts, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, false, false, 0) else { return nil }
         fnSetIntOpts?(hand, 0x2C, 1, kOptAbs)      // DisplayIntegrated
         fnSetIntOpts?(hand, 720921, 1, kOptAbs)    // iosre 实践用字段变体
         fnSetSender?(hand, senderID)
