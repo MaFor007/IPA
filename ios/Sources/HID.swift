@@ -135,6 +135,59 @@ final class HID {
         client = makeClient()
     }
 
+    // MARK: - 客户端类型探测（/hidtest）
+    /// 用指定类型的临时客户端派发一个事件，不动主 client。
+    /// monitor 可能只能监听不能派发；default/admin/post/passive 逐个试。
+    private func probeClient(_ raw: String) -> UnsafeRawPointer? {
+        if raw == "default" {
+            return fnClient.flatMap { $0(nil) }
+        }
+        guard let f = fnClientWithType else { return nil }
+        let t = raw as CFString
+        return f(nil, unsafeBitCast(t, to: UnsafeRawPointer.self), nil)
+    }
+
+    func probe(kind raw: String, page: UInt16, usage: UInt16) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        guard let f = fnKeyboard, let d = fnDispatch else {
+            return ["ok": false, "error": "键盘函数缺失"]
+        }
+        guard let c = probeClient(raw) else {
+            return ["ok": false, "type": raw, "error": "client 创建失败"]
+        }
+        defer { Unmanaged<CFTypeRef>.fromOpaque(c).release() }
+        if let ev = f(nil, mach_absolute_time(), page, usage, true, 0) {
+            d(c, ev)
+        }
+        usleep(40_000)
+        if let ev = f(nil, mach_absolute_time(), page, usage, false, 0) {
+            d(c, ev)
+        }
+        return ["ok": true, "type": raw, "action": "key", "page": Int(page), "usage": Int(usage)]
+    }
+
+    func probeTap(kind raw: String, x: CGFloat, y: CGFloat) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        guard let d = fnDispatch else { return ["ok": false, "error": "dispatch 缺失"] }
+        guard let c = probeClient(raw) else {
+            return ["ok": false, "type": raw, "error": "client 创建失败"]
+        }
+        defer { Unmanaged<CFTypeRef>.fromOpaque(c).release() }
+        touchIndex = touchIndex &+ 1
+        guard let ev = makeTouch(px: x, py: y, down: true, phase: maskRange | maskTouch | maskPosition) else {
+            return ["ok": false, "error": "事件构造失败"]
+        }
+        d(c, ev)
+        Unmanaged<CFTypeRef>.fromOpaque(ev).release()
+        usleep(50_000)
+        guard let up = makeTouch(px: x, py: y, down: false, phase: maskRange | maskTouch | maskPosition) else {
+            return ["ok": false, "error": "事件构造失败"]
+        }
+        d(c, up)
+        Unmanaged<CFTypeRef>.fromOpaque(up).release()
+        return ["ok": true, "type": raw, "action": "tap"]
+    }
+
     // MARK: - 基础
 
     private var screenSize: CGSize {
@@ -200,13 +253,17 @@ final class HID {
         return finger
     }
 
-    private func dispatch(_ ev: UnsafeRawPointer?) {
-        guard let ev = ev, let d = fnDispatch, let c = client else {
+    private func dispatchTo(_ c: UnsafeRawPointer?, _ ev: UnsafeRawPointer?) {
+        guard let ev = ev, let d = fnDispatch, let c = c else {
             if let ev = ev { Unmanaged<CFTypeRef>.fromOpaque(ev).release() }
             return
         }
         d(c, ev)
         Unmanaged<CFTypeRef>.fromOpaque(ev).release()
+    }
+
+    private func dispatch(_ ev: UnsafeRawPointer?) {
+        dispatchTo(client, ev)
     }
 
     // 事件掩码

@@ -167,6 +167,18 @@ enum Router {
             guard HID.shared.ready else { return fail("HID 未就绪") }
             return json(HID.shared.paste(t))
 
+        case "/hidtest":
+            let b = req.jsonBody
+            let kind = (b["type"] as? String) ?? "default"
+            let action = (b["action"] as? String) ?? "key"
+            if action == "tap" {
+                let pt = point(b)
+                return json(HID.shared.probeTap(kind: kind, x: pt.x, y: pt.y))
+            }
+            let page = UInt16((b["page"] as? Int) ?? 0x0C)
+            let usage = UInt16((b["usage"] as? Int) ?? 0x40)
+            return json(HID.shared.probe(kind: kind, page: page, usage: usage))
+
         default:
             return makeResponse(status: 404, json: ["ok": false, "error": "未知接口 \(p)"])
         }
