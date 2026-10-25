@@ -28,6 +28,12 @@
 	</array>
 	<key>com.apple.private.hid.client.event-dispatch</key>
 	<true/>
+	<key>com.apple.private.hid.client.event-filter</key>
+	<true/>
+	<key>com.apple.private.hid.client.event-monitor</key>
+	<true/>
+	<key>com.apple.private.hid.client.service-protected</key>
+	<true/>
 	<key>com.apple.private.hid.client.event-injector</key>
 	<true/>
 	<key>com.apple.private.hid.client.admin</key>
@@ -36,11 +42,15 @@
 	<true/>
 	<key>com.apple.private.hid.client.manager</key>
 	<true/>
+	<key>com.apple.private.hid.manager.client</key>
+	<true/>
 	<key>com.apple.private.hid.manager.user-access-device</key>
 	<true/>
 	<key>com.apple.private.hid.system.user-access-service</key>
 	<true/>
 	<key>com.apple.private.hid.interface.client</key>
+	<true/>
+	<key>com.apple.backboard.client</key>
 	<true/>
 	<key>com.apple.private.iokit.user-client-open</key>
 	<true/>

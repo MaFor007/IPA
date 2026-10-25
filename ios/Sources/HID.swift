@@ -137,7 +137,7 @@ final class HID {
             }
         }
 
-        Log.add("HID: ready=\(ready) finger=\(fnFinger != nil) digitizer=\(fnDigitizer != nil) dispatch=\(fnDispatch != nil)")
+        Log.add("HID[bt2]: ready=\(ready) finger=\(fnFinger != nil) digitizer=\(fnDigitizer != nil) dispatch=\(fnDispatch != nil)")
         ensureClient()
     }
 
