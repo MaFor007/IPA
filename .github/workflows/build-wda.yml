@@ -33,6 +33,7 @@ jobs:
             -derivedDataPath "$GITHUB_WORKSPACE/wda-dd" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             CODE_SIGN_ENTITLEMENTS="" \
+            ARCHS=arm64 VALID_ARCHS=arm64 EXCLUDED_ARCHS=arm64e \
             ONLY_ACTIVE_ARCH=NO 2>&1 | tail -60
 
       - name: Locate runner app
@@ -50,11 +51,22 @@ jobs:
           echo "BundleID=$BID Exec=$EXEC"
           echo "--- contents ---"
           ls -la "$APP"
-          echo "--- xctest bundle ---"
-          ls -la "$APP/PlugIns" || true
-          find "$APP" -maxdepth 2 -name "*.framework" -o -maxdepth 2 -name "*.dylib" | head -20
+          echo "--- has code signature? (should be none) ---"
+          otool -l "$APP/$EXEC" | grep -A2 LC_CODE_SIGNATURE || echo "no LC_CODE_SIGNATURE (unsigned, expected)"
 
-      - name: Sign with ldid
+      - name: Package UNSIGNED ipa (TrollStore signs it itself)
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          rm -rf pkg-unsigned
+          mkdir -p pkg-unsigned/Payload
+          cp -R "${{ steps.locate.outputs.app_path }}" pkg-unsigned/Payload/
+          rm -rf "pkg-unsigned/Payload/WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest.dSYM"
+          cd pkg-unsigned
+          zip -qry WebDriverAgent-unsigned.ipa Payload
+          ls -la WebDriverAgent-unsigned.ipa
+
+      - name: Package ldid-signed ipa (fallback variant)
         run: |
           set -e
           brew install ldid >/dev/null 2>&1 || true
@@ -65,29 +77,27 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/wda-out/Payload"
           cp -R "$APP" "$GITHUB_WORKSPACE/wda-out/Payload/"
           cd "$GITHUB_WORKSPACE/wda-out/Payload/WebDriverAgentRunner-Runner.app"
+          rm -rf PlugIns/WebDriverAgentRunner.xctest.dSYM
           ldid -S"$ENT" "$MAIN"
-          echo "signed main: $MAIN"
           find . -type f | while read -r f; do
             if file "$f" 2>/dev/null | grep -q "Mach-O"; then
               case "$f" in
                 "./$MAIN") ;;
-                *) ldid -S "$f" >/dev/null 2>&1 && echo "signed: $f" || echo "skip: $f" ;;
+                *) ldid -S "$f" >/dev/null 2>&1 || true ;;
               esac
             fi
           done
-          echo "--- verify main entitlements ---"
+          echo "--- main entitlements ---"
           ldid -e "$MAIN" | head -20
-
-      - name: Package IPA
-        run: |
           cd "$GITHUB_WORKSPACE/wda-out"
-          zip -qry WebDriverAgent.ipa Payload
-          ls -la WebDriverAgent.ipa
-          du -sh WebDriverAgent.ipa
+          zip -qry WebDriverAgent-signed.ipa Payload
+          ls -la WebDriverAgent-signed.ipa
 
-      - name: Upload IPA
+      - name: Upload IPAs
         uses: actions/upload-artifact@v4
         with:
-          name: WebDriverAgent-ipa
-          path: wda-out/WebDriverAgent.ipa
+          name: WebDriverAgent-ipas
+          path: |
+            pkg-unsigned/WebDriverAgent-unsigned.ipa
+            wda-out/WebDriverAgent-signed.ipa
           if-no-files-found: error
