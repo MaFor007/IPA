@@ -1,0 +1,93 @@
+name: Build WebDriverAgent for TrollStore
+
+on:
+  push:
+    paths:
+      - 'wda/**'
+      - '.github/workflows/build-wda.yml'
+  workflow_dispatch:
+
+jobs:
+  build-wda:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: Clone WebDriverAgent
+        run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda-src
+
+      - name: Build runner for device (unsigned)
+        run: |
+          set -o pipefail
+          cd wda-src
+          xcodebuild build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/wda-dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO 2>&1 | tail -60
+
+      - name: Locate runner app
+        id: locate
+        run: |
+          set -e
+          APP=$(find "$GITHUB_WORKSPACE/wda-dd/Build/Products" -type d -name "WebDriverAgentRunner-Runner.app" | head -1)
+          echo "found: $APP"
+          test -n "$APP"
+          echo "app_path=$APP" >> "$GITHUB_OUTPUT"
+          BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          EXEC=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist")
+          echo "bundle_id=$BID" >> "$GITHUB_OUTPUT"
+          echo "exec_name=$EXEC" >> "$GITHUB_OUTPUT"
+          echo "BundleID=$BID Exec=$EXEC"
+          echo "--- contents ---"
+          ls -la "$APP"
+          echo "--- xctest bundle ---"
+          ls -la "$APP/PlugIns" || true
+          find "$APP" -maxdepth 2 -name "*.framework" -o -maxdepth 2 -name "*.dylib" | head -20
+
+      - name: Sign with ldid
+        run: |
+          set -e
+          brew install ldid >/dev/null 2>&1 || true
+          APP="${{ steps.locate.outputs.app_path }}"
+          MAIN="${{ steps.locate.outputs.exec_name }}"
+          ENT="$GITHUB_WORKSPACE/wda/wda-entitlements.plist"
+          rm -rf "$GITHUB_WORKSPACE/wda-out"
+          mkdir -p "$GITHUB_WORKSPACE/wda-out/Payload"
+          cp -R "$APP" "$GITHUB_WORKSPACE/wda-out/Payload/"
+          cd "$GITHUB_WORKSPACE/wda-out/Payload/WebDriverAgentRunner-Runner.app"
+          ldid -S"$ENT" "$MAIN"
+          echo "signed main: $MAIN"
+          find . -type f | while read -r f; do
+            if file "$f" 2>/dev/null | grep -q "Mach-O"; then
+              case "$f" in
+                "./$MAIN") ;;
+                *) ldid -S "$f" >/dev/null 2>&1 && echo "signed: $f" || echo "skip: $f" ;;
+              esac
+            fi
+          done
+          echo "--- verify main entitlements ---"
+          ldid -e "$MAIN" | head -20
+
+      - name: Package IPA
+        run: |
+          cd "$GITHUB_WORKSPACE/wda-out"
+          zip -qry WebDriverAgent.ipa Payload
+          ls -la WebDriverAgent.ipa
+          du -sh WebDriverAgent.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgent-ipa
+          path: wda-out/WebDriverAgent.ipa
+          if-no-files-found: error
